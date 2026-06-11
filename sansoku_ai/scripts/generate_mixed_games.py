@@ -4,11 +4,13 @@ import argparse
 import json
 import math
 import random
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from time import perf_counter
+from typing import Any
 
-from sansoku_ai.core import Move, State, initial_state, legal_moves
+from sansoku_ai.core import Move, initial_state, legal_moves
 from sansoku_ai.players import AlphaBetaPlayer, RankerUnionPlayer
 from sansoku_ai.ranker import LinearRanker
 
@@ -33,6 +35,19 @@ class GameRecord:
     second_score: int
     margin: int
     moves: list[PlyRecord]
+
+
+@dataclass(frozen=True)
+class GameTask:
+    game_idx: int
+    seed: int
+    random_opening_plies: int
+    opening_top_k: int
+    opening_temperature: float
+    policy_mix: tuple[tuple[str, float], ...]
+    ranker_model: str | None
+    endgame: int
+    move_limit: int | None
 
 
 def parse_policy_mix(text: str) -> list[tuple[str, float]]:
@@ -90,6 +105,10 @@ def softmax_choice(
         if pick <= acc:
             return move
     return pool[-1]
+
+
+def rng_for_game(seed: int, game_idx: int) -> random.Random:
+    return random.Random(seed + game_idx * 1_000_003)
 
 
 def play_mixed_game(
@@ -169,6 +188,109 @@ def play_mixed_game(
     )
 
 
+def play_mixed_game_task(task: GameTask) -> GameRecord:
+    ranker = LinearRanker.load(Path(task.ranker_model)) if task.ranker_model else None
+    return play_mixed_game(
+        task.game_idx,
+        rng=rng_for_game(task.seed, task.game_idx),
+        random_opening_plies=task.random_opening_plies,
+        opening_top_k=task.opening_top_k,
+        opening_temperature=task.opening_temperature,
+        policy_mix=list(task.policy_mix),
+        ranker=ranker,
+        endgame=task.endgame,
+        move_limit=task.move_limit,
+    )
+
+
+def game_to_payload(record: GameRecord | dict[str, Any]) -> dict[str, Any]:
+    return asdict(record) if isinstance(record, GameRecord) else record
+
+
+def write_game(dst, record: GameRecord | dict[str, Any]) -> None:
+    dst.write(json.dumps(game_to_payload(record), separators=(",", ":")) + "\n")
+
+
+def load_existing_games(path: Path, *, max_games: int) -> dict[int, dict[str, Any]]:
+    if not path.exists():
+        return {}
+
+    games: dict[int, dict[str, Any]] = {}
+    needs_cleanup = False
+    with path.open("r", encoding="utf-8") as src:
+        for line in src:
+            if not line.strip():
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                needs_cleanup = True
+                continue
+            game_idx = int(record.get("game", -1))
+            if not (0 <= game_idx < max_games):
+                needs_cleanup = True
+                continue
+            if game_idx in games:
+                needs_cleanup = True
+            games[game_idx] = record
+
+    if needs_cleanup:
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        with tmp.open("w", encoding="utf-8") as dst:
+            for game_idx in sorted(games):
+                write_game(dst, games[game_idx])
+        tmp.replace(path)
+
+    return games
+
+
+def iter_generated_games(
+    game_indices: list[int],
+    *,
+    seed: int,
+    random_opening_plies: int,
+    opening_top_k: int,
+    opening_temperature: float,
+    policy_mix: tuple[tuple[str, float], ...],
+    ranker_model: Path | None,
+    endgame: int,
+    move_limit: int | None,
+    workers: int,
+    ranker: LinearRanker | None,
+):
+    if workers <= 1:
+        for game_idx in game_indices:
+            yield play_mixed_game(
+                game_idx,
+                rng=rng_for_game(seed, game_idx),
+                random_opening_plies=random_opening_plies,
+                opening_top_k=opening_top_k,
+                opening_temperature=opening_temperature,
+                policy_mix=list(policy_mix),
+                ranker=ranker,
+                endgame=endgame,
+                move_limit=move_limit,
+            )
+        return
+
+    tasks = [
+        GameTask(
+            game_idx=game_idx,
+            seed=seed,
+            random_opening_plies=random_opening_plies,
+            opening_top_k=opening_top_k,
+            opening_temperature=opening_temperature,
+            policy_mix=policy_mix,
+            ranker_model=str(ranker_model) if ranker_model is not None else None,
+            endgame=endgame,
+            move_limit=move_limit,
+        )
+        for game_idx in game_indices
+    ]
+    with ProcessPoolExecutor(max_workers=workers) as executor:
+        yield from executor.map(play_mixed_game_task, tasks, chunksize=1)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--games", type=int, default=10)
@@ -188,47 +310,73 @@ def main() -> None:
     parser.add_argument("--move-limit", type=int, default=12)
     parser.add_argument("--output", type=Path, default=None)
     parser.add_argument("--progress-every", type=int, default=10)
+    parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
 
-    rng = random.Random(args.seed)
-    policy_mix = args.policy_mix or [("ab2", args.ab2_prob), ("ab3", 1.0 - args.ab2_prob)]
+    policy_mix = tuple(args.policy_mix or [("ab2", args.ab2_prob), ("ab3", 1.0 - args.ab2_prob)])
     ranker = LinearRanker.load(args.ranker_model) if args.ranker_model is not None else None
     start = perf_counter()
-    records: list[GameRecord] = []
+    existing: dict[int, dict[str, Any]] = {}
+    if args.output is not None and args.resume:
+        existing = load_existing_games(args.output, max_games=args.games)
+        if existing:
+            print(
+                f"resume output={args.output} existing_games={len(existing)} "
+                f"pending={args.games - len(existing)}"
+            )
 
-    for game_idx in range(args.games):
-        record = play_mixed_game(
-            game_idx,
-            rng=rng,
+    game_indices = [game_idx for game_idx in range(args.games) if game_idx not in existing]
+    done_games = len(existing)
+    total_margin = sum(int(record["margin"]) for record in existing.values())
+    records: list[GameRecord | dict[str, Any]] = list(existing.values()) if args.output is None else []
+
+    dst = None
+    if args.output is not None:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        mode = "a" if args.resume else "w"
+        dst = args.output.open(mode, encoding="utf-8")
+
+    try:
+        for record in iter_generated_games(
+            game_indices,
+            seed=args.seed,
             random_opening_plies=args.random_opening_plies,
             opening_top_k=args.opening_top_k,
             opening_temperature=args.opening_temperature,
             policy_mix=policy_mix,
-            ranker=ranker,
+            ranker_model=args.ranker_model,
             endgame=args.endgame,
             move_limit=args.move_limit,
-        )
-        records.append(record)
-        if args.progress_every and (game_idx + 1) % args.progress_every == 0:
-            elapsed = perf_counter() - start
-            print(
-                f"games={game_idx + 1} elapsed={elapsed:.2f}s "
-                f"games_per_sec={(game_idx + 1) / elapsed:.3f}"
-            )
+            workers=max(1, args.workers),
+            ranker=ranker,
+        ):
+            done_games += 1
+            total_margin += record.margin
+            if dst is not None:
+                write_game(dst, record)
+                dst.flush()
+            else:
+                records.append(record)
+            if args.progress_every and done_games % args.progress_every == 0:
+                elapsed = perf_counter() - start
+                print(
+                    f"games={done_games} elapsed={elapsed:.2f}s "
+                    f"games_per_sec={done_games / elapsed:.3f}"
+                )
+    finally:
+        if dst is not None:
+            dst.close()
 
     elapsed = perf_counter() - start
-    margins = [record.margin for record in records]
+    avg_margin = total_margin / max(1, done_games)
     print(
-        f"done games={args.games} elapsed={elapsed:.2f}s "
-        f"games_per_sec={args.games / elapsed:.3f} "
-        f"avg_margin={sum(margins) / len(margins):+.2f}"
+        f"done games={done_games}/{args.games} elapsed={elapsed:.2f}s "
+        f"games_per_sec={done_games / elapsed if elapsed else 0:.3f} "
+        f"avg_margin={avg_margin:+.2f}"
     )
 
     if args.output is not None:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        with args.output.open("w", encoding="utf-8") as f:
-            for record in records:
-                f.write(json.dumps(asdict(record), separators=(",", ":")) + "\n")
         print(f"wrote {args.output}")
 
 

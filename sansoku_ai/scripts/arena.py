@@ -24,6 +24,48 @@ class ArenaGame:
     elapsed_sec: float
 
 
+def empty_stats() -> dict[str, float | int]:
+    return {
+        "games": 0,
+        "wins": 0,
+        "losses": 0,
+        "draws": 0,
+        "total_margin": 0,
+        "avg_margin": 0.0,
+    }
+
+
+def update_stats(stats: dict[str, float | int], margin: int) -> None:
+    stats["games"] = int(stats["games"]) + 1
+    stats["total_margin"] = int(stats["total_margin"]) + margin
+    if margin > 0:
+        stats["wins"] = int(stats["wins"]) + 1
+    elif margin < 0:
+        stats["losses"] = int(stats["losses"]) + 1
+    else:
+        stats["draws"] = int(stats["draws"]) + 1
+    stats["avg_margin"] = int(stats["total_margin"]) / max(1, int(stats["games"]))
+
+
+def side_key(side: int) -> str:
+    return "first" if side == int(Player.FIRST) else "second"
+
+
+def summarize_by_side(results: list[ArenaGame]) -> dict[str, dict[str, float | int]]:
+    summary = {"first": empty_stats(), "second": empty_stats()}
+    for result in results:
+        update_stats(summary[side_key(result.candidate_side)], result.candidate_margin)
+    return summary
+
+
+def format_stats(label: str, stats: dict[str, float | int]) -> str:
+    return (
+        f"{label}: games={int(stats['games'])} wins={int(stats['wins'])} "
+        f"losses={int(stats['losses'])} draws={int(stats['draws'])} "
+        f"avg_margin={float(stats['avg_margin']):+.2f}"
+    )
+
+
 class Actor:
     def choose(self, state: State, rng: random.Random) -> tuple[Move, str]:
         raise NotImplementedError
@@ -288,10 +330,17 @@ def main() -> None:
             )
 
     elapsed = perf_counter() - start
+    by_side = summarize_by_side(results)
     print(
         f"summary candidate={args.candidate} opponent_mix={args.opponent_mix} "
         f"games={args.games} wins={wins} losses={losses} draws={draws} "
         f"avg_margin={total_margin / args.games:+.2f} elapsed={elapsed:.2f}s"
+    )
+    print(
+        "by_side "
+        + format_stats("candidate_first", by_side["first"])
+        + " | "
+        + format_stats("candidate_second", by_side["second"])
     )
 
     if args.output is not None:
@@ -305,6 +354,7 @@ def main() -> None:
             "draws": draws,
             "avg_margin": total_margin / args.games,
             "elapsed_sec": elapsed,
+            "by_side": by_side,
             "results": [asdict(result) for result in results],
         }
         args.output.write_text(json.dumps(payload, indent=2), encoding="utf-8")

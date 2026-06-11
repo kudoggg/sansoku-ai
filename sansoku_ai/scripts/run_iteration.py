@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 from pathlib import Path
+from time import perf_counter
 
 
 BASE_SOURCES = (
@@ -16,16 +18,74 @@ BASE_SOURCES = (
 )
 
 
-def run(cmd: list[str]) -> None:
+def run(cmd: list[str]) -> float:
     print("\n$", " ".join(cmd), flush=True)
+    start = perf_counter()
     subprocess.run(cmd, check=True)
+    elapsed = perf_counter() - start
+    print(f"$ done elapsed={elapsed:.2f}s", flush=True)
+    return elapsed
 
 
-def maybe_run(cmd: list[str], output: Path, *, force: bool) -> None:
+def log_step(logs: list[tuple[str, str, float]], name: str, status: str, elapsed: float) -> None:
+    logs.append((name, status, elapsed))
+
+
+def run_step(logs: list[tuple[str, str, float]], name: str, cmd: list[str]) -> None:
+    log_step(logs, name, "ran", run(cmd))
+
+
+def maybe_run(
+    logs: list[tuple[str, str, float]],
+    name: str,
+    cmd: list[str],
+    output: Path,
+    *,
+    force: bool,
+) -> None:
     if output.exists() and not force:
         print(f"skip existing {output}")
+        log_step(logs, name, "skipped", 0.0)
         return
-    run(cmd)
+    run_step(logs, name, cmd)
+
+
+def count_jsonl(path: Path) -> int:
+    if not path.exists():
+        return 0
+    count = 0
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            if not line.strip():
+                continue
+            try:
+                json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            count += 1
+    return count
+
+
+def print_arena_result(path: Path) -> None:
+    if not path.exists():
+        return
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    print(
+        f"arena {path.name}: games={payload['games']} "
+        f"wins={payload['wins']} losses={payload['losses']} draws={payload['draws']} "
+        f"avg_margin={float(payload['avg_margin']):+.2f}"
+    )
+    by_side = payload.get("by_side")
+    if by_side:
+        first = by_side.get("first", {})
+        second = by_side.get("second", {})
+        print(
+            "  by_side "
+            f"first={int(first.get('wins', 0))}-{int(first.get('losses', 0))}-"
+            f"{int(first.get('draws', 0))} avg={float(first.get('avg_margin', 0.0)):+.2f}; "
+            f"second={int(second.get('wins', 0))}-{int(second.get('losses', 0))}-"
+            f"{int(second.get('draws', 0))} avg={float(second.get('avg_margin', 0.0)):+.2f}"
+        )
 
 
 def main() -> None:
@@ -55,6 +115,7 @@ def main() -> None:
     parser.add_argument("--arena-strong-full-games", type=int, default=0)
     args = parser.parse_args()
 
+    step_logs: list[tuple[str, str, float]] = []
     run_dir = args.output_root / args.name
     run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -70,33 +131,41 @@ def main() -> None:
 
     py = sys.executable
 
-    maybe_run(
-        [
-            py,
-            "-m",
-            "sansoku_ai.scripts.generate_mixed_games",
-            "--games",
-            str(args.games),
-            "--seed",
-            str(args.seed),
-            "--endgame",
-            str(args.endgame),
-            "--move-limit",
-            str(args.move_limit),
-            "--policy-mix",
-            args.policy_mix,
-            "--ranker-model",
-            str(args.ranker_model),
-            "--output",
-            str(mixed),
-            "--progress-every",
-            str(max(1, args.games // 10)),
-        ],
-        mixed,
-        force=args.force,
-    )
+    generate_cmd = [
+        py,
+        "-m",
+        "sansoku_ai.scripts.generate_mixed_games",
+        "--games",
+        str(args.games),
+        "--seed",
+        str(args.seed),
+        "--endgame",
+        str(args.endgame),
+        "--move-limit",
+        str(args.move_limit),
+        "--policy-mix",
+        args.policy_mix,
+        "--ranker-model",
+        str(args.ranker_model),
+        "--output",
+        str(mixed),
+        "--progress-every",
+        str(max(1, args.games // 10)),
+        "--workers",
+        str(args.workers),
+    ]
+    existing_games = count_jsonl(mixed)
+    if mixed.exists() and not args.force and existing_games >= args.games:
+        print(f"skip existing {mixed} games={existing_games}/{args.games}")
+        log_step(step_logs, "generate mixed games", "skipped", 0.0)
+    else:
+        if mixed.exists() and not args.force:
+            generate_cmd.append("--resume")
+        run_step(step_logs, "generate mixed games", generate_cmd)
 
     maybe_run(
+        step_logs,
+        "sample positions",
         [
             py,
             "-m",
@@ -133,9 +202,11 @@ def main() -> None:
     ]
     if reanalyzed_d3.exists() and not args.force:
         reanalyze_d3_cmd.append("--resume")
-    run(reanalyze_d3_cmd)
+    run_step(step_logs, "reanalyze d3 fast", reanalyze_d3_cmd)
 
     maybe_run(
+        step_logs,
+        "select hard positions",
         [
             py,
             "-m",
@@ -172,7 +243,7 @@ def main() -> None:
     ]
     if hard_d5.exists() and not args.force:
         reanalyze_d5_cmd.append("--resume")
-    run(reanalyze_d5_cmd)
+    run_step(step_logs, "reanalyze d5 hard", reanalyze_d5_cmd)
 
     build_cmd = [
         py,
@@ -197,10 +268,12 @@ def main() -> None:
             f"{hard_d5}:{args.name}_d5_root16_move12:5:35",
         ]
     )
-    maybe_run(build_cmd, dataset, force=args.force)
+    maybe_run(step_logs, "build training dataset", build_cmd, dataset, force=args.force)
 
     if not args.skip_train:
         maybe_run(
+            step_logs,
+            "train ranker",
             [
                 py,
                 "-m",
@@ -223,7 +296,9 @@ def main() -> None:
             model,
             force=args.force,
         )
-        run(
+        run_step(
+            step_logs,
+            "evaluate ranker",
             [
                 py,
                 "-m",
@@ -236,6 +311,8 @@ def main() -> None:
     arena_model = model if model.exists() else args.ranker_model
     if not args.skip_arena and args.arena_games > 0:
         maybe_run(
+            step_logs,
+            "arena ru3 vs ab23 limited",
             [
                 py,
                 "-m",
@@ -267,6 +344,8 @@ def main() -> None:
 
     if not args.skip_arena and args.arena_strong_games > 0:
         maybe_run(
+            step_logs,
+            "arena ru3 vs ab34 limited",
             [
                 py,
                 "-m",
@@ -298,6 +377,8 @@ def main() -> None:
 
     if not args.skip_arena and args.arena_full_games > 0:
         maybe_run(
+            step_logs,
+            "arena ru3 vs ab23 full",
             [
                 py,
                 "-m",
@@ -327,6 +408,8 @@ def main() -> None:
 
     if not args.skip_arena and args.arena_strong_full_games > 0:
         maybe_run(
+            step_logs,
+            "arena ru3 vs ab34 full",
             [
                 py,
                 "-m",
@@ -357,6 +440,13 @@ def main() -> None:
     print(f"\niteration complete: {args.name}")
     print(f"run_dir={run_dir}")
     print(f"model={model}")
+    print("step_summary:")
+    for name, status, elapsed in step_logs:
+        print(f"  {name}: {status} elapsed={elapsed:.2f}s")
+    print_arena_result(run_dir / "arena_ru3_vs_ab23_limited.json")
+    print_arena_result(run_dir / "arena_ru3_vs_ab34_limited.json")
+    print_arena_result(run_dir / "arena_ru3_vs_ab23_full.json")
+    print_arena_result(run_dir / "arena_ru3_vs_ab34_full.json")
 
 
 if __name__ == "__main__":

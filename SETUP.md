@@ -64,6 +64,13 @@ Generate stronger mixed games using ranker-union players:
 python -m sansoku_ai.scripts.generate_mixed_games --games 100 --endgame 4 --move-limit 8 --policy-mix ab2:0.3,ab3:0.4,ru2:0.15,ru3:0.15 --ranker-model models/linear_ranker_best.json --output data/mixed_ru_100.jsonl
 ```
 
+Parallel and resumable mixed game generation:
+
+```powershell
+python -m sansoku_ai.scripts.generate_mixed_games --games 1000 --workers 4 --endgame 4 --move-limit 8 --policy-mix ab2:0.3,ab3:0.4,ru2:0.15,ru3:0.15 --ranker-model models/linear_ranker_v2.json --output data/mixed_ru_1000.jsonl
+python -m sansoku_ai.scripts.generate_mixed_games --games 1000 --workers 4 --endgame 4 --move-limit 8 --policy-mix ab2:0.3,ab3:0.4,ru2:0.15,ru3:0.15 --ranker-model models/linear_ranker_v2.json --output data/mixed_ru_1000.jsonl --resume
+```
+
 Analyze written values:
 
 ```powershell

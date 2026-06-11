@@ -13,6 +13,8 @@ Current slice:
 - A heuristic evaluation that keeps first/second asymmetry and empty-center-empty
   trap features as evaluation only, not as pruning.
 - Greedy and alpha-beta match runner.
+- Ranker-union root search and an automated self-play/reanalysis iteration loop.
+- Parallel/resumable mixed-game generation for RunPod or other multi-core hosts.
 
 Try:
 
@@ -22,4 +24,5 @@ python -m sansoku_ai.scripts.benchmark_endgame --remaining 6 --samples 3
 python -m sansoku_ai.scripts.play_match --first ab2 --second greedy --games 2 --endgame 6
 python -m sansoku_ai.scripts.generate_mixed_games --games 10 --endgame 6 --move-limit 12
 python -m sansoku_ai.scripts.play_match --first ru3 --second ab3 --games 2 --endgame 4 --move-limit 8 --ranker-model models/linear_ranker_best.json
+python -m sansoku_ai.scripts.run_iteration --name iter001 --games 1000 --workers 8 --ranker-model models/linear_ranker_v2.json
 ```
