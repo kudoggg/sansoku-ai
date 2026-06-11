@@ -1,0 +1,37 @@
+# Python cache and local environment
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# Generated Sansoku data
+data/
+!data/.gitkeep
+
+# Keep most generated models out of git, but allow small bootstrap rankers.
+models/
+!models/.gitkeep
+!models/linear_ranker_best.json
+!models/linear_ranker_v2.json
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# RunPod/local scratch
+workspace/
+outputs/
+runs/
