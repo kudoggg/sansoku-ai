@@ -14,7 +14,7 @@ data/
 !data/.gitkeep
 
 # Keep most generated models out of git, but allow small bootstrap rankers.
-models/
+models/*
 !models/.gitkeep
 !models/linear_ranker_best.json
 !models/linear_ranker_v2.json
