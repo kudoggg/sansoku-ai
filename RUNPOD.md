@@ -57,6 +57,20 @@ models/linear_ranker_iter001.json
 The final summary prints per-step elapsed time plus arena results split by the
 candidate playing first or second.
 
+## Save iteration artifacts
+
+After an iteration completes, package the small important outputs before
+stopping or deleting anything:
+
+```bash
+python -m sansoku_ai.scripts.summarize_iteration iter001
+python -m sansoku_ai.scripts.package_iteration iter001
+ls -lh outputs/iter001_artifacts.tar.gz
+```
+
+This package includes the ranker model, log file, and arena JSON results. Add
+`--include-data` only when you intentionally want the larger JSONL data too.
+
 ## When RunPod is worth it
 
 Use RunPod when:

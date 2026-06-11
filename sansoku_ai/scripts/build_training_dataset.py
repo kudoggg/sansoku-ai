@@ -9,6 +9,8 @@ from pathlib import Path
 from statistics import mean
 from typing import Any
 
+from sansoku_ai.jsonl import iter_jsonl_records
+
 
 @dataclass(frozen=True)
 class SourceSpec:
@@ -199,31 +201,27 @@ def main() -> None:
     for source in sources:
         read_counts[source.tier] = 0
         kept_counts[source.tier] = 0
-        with source.path.open("r", encoding="utf-8") as f:
-            for line in f:
-                if not line.strip():
-                    continue
-                read_counts[source.tier] += 1
-                raw = json.loads(line)
-                record = build_example(
-                    raw,
-                    source,
-                    policy_temperature=args.policy_temperature,
-                    min_analyzed_moves=args.min_analyzed_moves,
-                )
-                if record is None:
-                    skipped += 1
-                    continue
-                key = example_key(record)
-                example = DatasetExample(key=key, quality=source.quality, record=record)
-                if args.keep_duplicates:
-                    examples_list.append(example)
-                    kept_counts[source.tier] += 1
-                    continue
+        for raw in iter_jsonl_records(source.path):
+            read_counts[source.tier] += 1
+            record = build_example(
+                raw,
+                source,
+                policy_temperature=args.policy_temperature,
+                min_analyzed_moves=args.min_analyzed_moves,
+            )
+            if record is None:
+                skipped += 1
+                continue
+            key = example_key(record)
+            example = DatasetExample(key=key, quality=source.quality, record=record)
+            if args.keep_duplicates:
+                examples_list.append(example)
+                kept_counts[source.tier] += 1
+                continue
 
-                old = examples_by_key.get(key)
-                if old is None or example.quality >= old.quality:
-                    examples_by_key[key] = example
+            old = examples_by_key.get(key)
+            if old is None or example.quality >= old.quality:
+                examples_by_key[key] = example
 
     if not args.keep_duplicates:
         examples_list = list(examples_by_key.values())

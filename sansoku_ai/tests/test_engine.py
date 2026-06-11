@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from math import inf
 from random import Random
+from tempfile import TemporaryDirectory
+from pathlib import Path
 
 from sansoku_ai.core import EMPTY_OWNER, Move, State, initial_state, legal_moves
+from sansoku_ai.jsonl import load_jsonl_records
 from sansoku_ai.players import GreedyPlayer
 from sansoku_ai.search import AlphaBetaSearch
 
@@ -57,3 +60,11 @@ def test_exact_search_matches_naive_minimax_on_small_endgames() -> None:
         result = search.choose(state)
         assert result.exact
         assert result.value == naive_exact(state)
+
+
+def test_jsonl_loader_skips_bad_lines() -> None:
+    with TemporaryDirectory() as tmpdir:
+        path = Path(tmpdir) / "bad.jsonl"
+        path.write_text('{"id":1}\n{"id":\n{"id":2}\n', encoding="utf-8")
+        records = load_jsonl_records(path, warn=False)
+    assert [record["id"] for record in records] == [1, 2]

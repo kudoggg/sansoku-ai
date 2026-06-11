@@ -8,6 +8,7 @@ from time import perf_counter
 from typing import Any
 
 from sansoku_ai.core import legal_moves
+from sansoku_ai.jsonl import iter_jsonl_records
 from sansoku_ai.records import move_to_record, state_from_record
 from sansoku_ai.search import AlphaBetaSearch
 
@@ -40,15 +41,8 @@ def load_done_ids(path: Path) -> set[str]:
     done: set[str] = set()
     if not path.exists():
         return done
-    with path.open("r", encoding="utf-8") as f:
-        for line in f:
-            if not line.strip():
-                continue
-            try:
-                record = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            done.add(str(record.get("id", "")))
+    for record in iter_jsonl_records(path):
+        done.add(str(record.get("id", "")))
     done.discard("")
     return done
 
@@ -121,29 +115,25 @@ def load_tasks(
     tasks: list[dict[str, Any]] = []
     skipped = 0
     seen_keys: set[str] = set()
-    with path.open("r", encoding="utf-8") as src:
-        for line in src:
-            if max_positions is not None and len(tasks) >= max_positions:
-                break
-            if not line.strip():
-                continue
-            position = json.loads(line)
-            if str(position["id"]) in done_ids:
+    for position in iter_jsonl_records(path):
+        if max_positions is not None and len(tasks) >= max_positions:
+            break
+        if str(position["id"]) in done_ids:
+            skipped += 1
+            continue
+        if dedupe_state:
+            key = state_analysis_key(
+                position,
+                depth=depth,
+                endgame=endgame,
+                root_limit=root_limit,
+                move_limit=move_limit,
+            )
+            if key in seen_keys:
                 skipped += 1
                 continue
-            if dedupe_state:
-                key = state_analysis_key(
-                    position,
-                    depth=depth,
-                    endgame=endgame,
-                    root_limit=root_limit,
-                    move_limit=move_limit,
-                )
-                if key in seen_keys:
-                    skipped += 1
-                    continue
-                seen_keys.add(key)
-            tasks.append(position)
+            seen_keys.add(key)
+        tasks.append(position)
     return tasks, skipped
 
 

@@ -144,6 +144,13 @@ python -m sansoku_ai.scripts.arena --candidate ru3 --opponent-mix ab2:0.5,ab3:0.
 python -m sansoku_ai.scripts.arena --candidate ru3 --opponent-mix ab3:0.5,ab4:0.5 --games 6 --ranker-model models/linear_ranker_v2.json --full-candidate --full-opponent
 ```
 
+Summarize and package an iteration:
+
+```powershell
+python -m sansoku_ai.scripts.summarize_iteration iter001
+python -m sansoku_ai.scripts.package_iteration iter001
+```
+
 ## Development rule
 
 Keep exact rules and hypotheses separate:

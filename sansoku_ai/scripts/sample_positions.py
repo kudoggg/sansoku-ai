@@ -7,6 +7,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from sansoku_ai.jsonl import iter_jsonl_records
 from sansoku_ai.records import move_from_record, move_to_record, replay_game_states, state_to_record
 
 
@@ -26,12 +27,7 @@ def phase_for(moves_played: int) -> str:
 
 
 def load_games(path: Path) -> list[dict[str, Any]]:
-    games: list[dict[str, Any]] = []
-    with path.open("r", encoding="utf-8") as f:
-        for line in f:
-            if line.strip():
-                games.append(json.loads(line))
-    return games
+    return list(iter_jsonl_records(path))
 
 
 def main() -> None:

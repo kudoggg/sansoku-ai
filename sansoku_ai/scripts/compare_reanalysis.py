@@ -6,16 +6,14 @@ from pathlib import Path
 from statistics import mean
 from typing import Any
 
+from sansoku_ai.jsonl import iter_jsonl_records
 from sansoku_ai.scripts.select_hard_positions import same_move, value_for_move
 
 
 def load_by_id(path: Path) -> dict[str, dict[str, Any]]:
     records: dict[str, dict[str, Any]] = {}
-    with path.open("r", encoding="utf-8") as f:
-        for line in f:
-            if line.strip():
-                record = json.loads(line)
-                records[str(record["id"])] = record
+    for record in iter_jsonl_records(path):
+        records[str(record["id"])] = record
     return records
 
 

@@ -16,6 +16,7 @@ from .core import (
     is_edge_index,
     rc_to_index,
 )
+from .jsonl import load_jsonl_records
 from .records import move_to_record, state_to_record
 
 
@@ -282,12 +283,7 @@ def best_index(record: dict[str, Any]) -> int:
 
 
 def load_jsonl(path: Path) -> list[dict[str, Any]]:
-    records: list[dict[str, Any]] = []
-    with path.open("r", encoding="utf-8") as f:
-        for line in f:
-            if line.strip():
-                records.append(json.loads(line))
-    return records
+    return load_jsonl_records(path)
 
 
 def evaluate_ranker(model: LinearRanker, records: list[dict[str, Any]]) -> dict[str, float]:

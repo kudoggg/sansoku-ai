@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from sansoku_ai.jsonl import iter_jsonl_records
+
 
 @dataclass(frozen=True)
 class ScoredRecord:
@@ -108,23 +110,19 @@ def main() -> None:
 
     selected: list[ScoredRecord] = []
     total = 0
-    with args.reanalyzed.open("r", encoding="utf-8") as f:
-        for line in f:
-            if not line.strip():
-                continue
-            total += 1
-            record = json.loads(line)
-            scored = score_record(
-                record,
-                min_gap=args.min_gap,
-                big_move_value=args.big_move_value,
-                big_blunder_gap=args.big_blunder_gap,
-                close_gap=args.close_gap,
-                min_remaining=args.min_remaining,
-                max_remaining=args.max_remaining,
-            )
-            if scored is not None:
-                selected.append(scored)
+    for record in iter_jsonl_records(args.reanalyzed):
+        total += 1
+        scored = score_record(
+            record,
+            min_gap=args.min_gap,
+            big_move_value=args.big_move_value,
+            big_blunder_gap=args.big_blunder_gap,
+            close_gap=args.close_gap,
+            min_remaining=args.min_remaining,
+            max_remaining=args.max_remaining,
+        )
+        if scored is not None:
+            selected.append(scored)
 
     selected.sort(key=lambda item: item.priority, reverse=True)
     selected = selected[: args.limit]
