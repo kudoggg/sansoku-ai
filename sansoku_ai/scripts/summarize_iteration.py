@@ -33,7 +33,7 @@ def print_arena(path: Path) -> None:
     }
     print(
         f"{name}: games={int(payload.get('games', 0))} "
-        f"score={fmt_score(overall)} avg={fmt_avg(overall)}"
+        f"komi={int(payload.get('komi', 0))} score={fmt_score(overall)} avg={fmt_avg(overall)}"
     )
     by_side = payload.get("by_side", {})
     if by_side:

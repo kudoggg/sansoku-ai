@@ -24,14 +24,18 @@ def main() -> None:
     output = args.output or Path("outputs") / f"{args.name}_artifacts.tar.gz"
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    model = Path("models") / f"linear_ranker_{args.name}.json"
+    models = (
+        Path("models") / f"linear_ranker_{args.name}.json",
+        Path("models") / f"nn_ranker_{args.name}.pt",
+    )
     log = Path("logs") / f"{args.name}.log"
     run_dir = Path("data") / "iterations" / args.name
     arena_files = sorted(run_dir.glob("arena_*.json")) if run_dir.exists() else []
 
     added = 0
     with tarfile.open(output, "w:gz") as archive:
-        added += add_if_exists(archive, model)
+        for model in models:
+            added += add_if_exists(archive, model)
         added += add_if_exists(archive, log)
         for path in arena_files:
             added += add_if_exists(archive, path)

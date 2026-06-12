@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from .core import Move, State, legal_moves
-from .ranker import LinearRanker
+from .ranker import RankerModel
 from .search import AlphaBetaSearch, RankerUnionConfig, RankerUnionSearch, SearchResult
 
 
@@ -71,7 +71,7 @@ class RankerUnionPlayer:
     def __init__(
         self,
         *,
-        ranker: LinearRanker,
+        ranker: RankerModel,
         depth: int = 4,
         endgame_exact_remaining: int = 8,
         move_limit: int | None = None,

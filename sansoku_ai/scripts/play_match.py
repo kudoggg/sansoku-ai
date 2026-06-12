@@ -12,7 +12,8 @@ from sansoku_ai.players import (
     RankerUnionPlayer,
     SansokuPlayer,
 )
-from sansoku_ai.ranker import LinearRanker
+from sansoku_ai.ranker import RankerModel
+from sansoku_ai.ranker_loader import load_ranker_model
 
 
 @dataclass
@@ -31,7 +32,7 @@ def make_player(
     *,
     endgame_exact_remaining: int,
     move_limit: int | None,
-    ranker: LinearRanker | None,
+    ranker: RankerModel | None,
     union_value_moves: int,
     union_ranker_moves: int,
     union_defense_moves: int,
@@ -87,6 +88,11 @@ def play_game(first: SansokuPlayer, second: SansokuPlayer, *, verbose: bool = Fa
     return GameResult(state.first_score, state.second_score, state.moves_played)
 
 
+def candidate_margin(result: GameResult, *, candidate_side: Player, komi: int) -> int:
+    first_margin_with_komi = result.margin + komi
+    return first_margin_with_komi if candidate_side == Player.FIRST else -first_margin_with_komi
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--first", default="ab2")
@@ -99,9 +105,10 @@ def main() -> None:
     parser.add_argument("--union-ranker-moves", type=int, default=8)
     parser.add_argument("--union-defense-moves", type=int, default=4)
     parser.add_argument("--union-max-root-moves", type=int, default=24)
+    parser.add_argument("--komi", type=int, default=16)
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
-    ranker = LinearRanker.load(args.ranker_model) if args.ranker_model is not None else None
+    ranker = load_ranker_model(args.ranker_model) if args.ranker_model is not None else None
 
     first_wins = 0
     second_wins = 0
@@ -131,7 +138,7 @@ def main() -> None:
                 union_max_root_moves=args.union_max_root_moves,
             )
             label = f"{args.first} as FIRST vs {args.second} as SECOND"
-            candidate_sign = 1
+            candidate_side = Player.FIRST
         else:
             first_player = make_player(
                 args.second,
@@ -154,27 +161,34 @@ def main() -> None:
                 union_max_root_moves=args.union_max_root_moves,
             )
             label = f"{args.first} as SECOND vs {args.second} as FIRST"
-            candidate_sign = -1
+            candidate_side = Player.SECOND
 
         result = play_game(first_player, second_player, verbose=args.verbose)
-        candidate_margin = candidate_sign * result.margin
-        total_margin += candidate_margin
-        if candidate_margin > 0:
+        raw_candidate_margin = result.margin if candidate_side == Player.FIRST else -result.margin
+        adjusted_candidate_margin = candidate_margin(
+            result,
+            candidate_side=candidate_side,
+            komi=args.komi,
+        )
+        total_margin += adjusted_candidate_margin
+        if adjusted_candidate_margin > 0:
             first_wins += 1
-        elif candidate_margin < 0:
+        elif adjusted_candidate_margin < 0:
             second_wins += 1
         else:
             draws += 1
         print(
             f"game {game_idx + 1}: {label}: "
             f"score {result.first_score}-{result.second_score}, "
-            f"candidate_margin={candidate_margin:+d}, moves={result.moves}"
+            f"candidate_margin={adjusted_candidate_margin:+d}, "
+            f"raw_candidate_margin={raw_candidate_margin:+d}, "
+            f"komi={args.komi}, moves={result.moves}"
         )
 
     print(
         f"summary candidate={args.first}: "
         f"wins={first_wins}, losses={second_wins}, draws={draws}, "
-        f"avg_margin={total_margin / args.games:+.2f}"
+        f"avg_margin={total_margin / args.games:+.2f}, komi={args.komi}"
     )
 
 

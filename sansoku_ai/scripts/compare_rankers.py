@@ -4,17 +4,15 @@ import argparse
 from collections import defaultdict
 from pathlib import Path
 
-from sansoku_ai.ranker import LinearRanker, best_index, load_jsonl
+from sansoku_ai.ranker import best_index, load_jsonl
+from sansoku_ai.ranker_loader import load_ranker_model
 
 
-def predicted_index(model: LinearRanker, record: dict) -> int:
-    scores = model.score_record(record)
+def predicted_index(scores: list[float]) -> int:
     return max(range(len(scores)), key=lambda idx: scores[idx])
 
 
-def best_rank(model: LinearRanker, record: dict) -> int:
-    scores = model.score_record(record)
-    gold = best_index(record)
+def best_rank(scores: list[float], gold: int) -> int:
     order = sorted(range(len(scores)), key=lambda idx: scores[idx], reverse=True)
     return order.index(gold) + 1
 
@@ -69,8 +67,8 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    model_a = LinearRanker.load(args.model_a)
-    model_b = LinearRanker.load(args.model_b)
+    model_a = load_ranker_model(args.model_a)
+    model_b = load_ranker_model(args.model_b)
     records = load_jsonl(args.data)
     high_quality = {item.strip() for item in args.high_quality_tiers.split(",") if item.strip()}
 
@@ -78,12 +76,14 @@ def main() -> None:
 
     for record in records:
         gold = best_index(record)
-        pred_a = predicted_index(model_a, record)
-        pred_b = predicted_index(model_b, record)
+        scores_a = model_a.score_record(record)
+        scores_b = model_b.score_record(record)
+        pred_a = predicted_index(scores_a)
+        pred_b = predicted_index(scores_b)
         a_ok = pred_a == gold
         b_ok = pred_b == gold
-        a_rank = best_rank(model_a, record)
-        b_rank = best_rank(model_b, record)
+        a_rank = best_rank(scores_a, gold)
+        b_rank = best_rank(scores_b, gold)
         tier = str(record.get("tier", "unknown"))
         phase = str(record.get("phase", "unknown"))
 

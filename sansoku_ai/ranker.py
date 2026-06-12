@@ -4,7 +4,7 @@ import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from .core import (
     BOARD_SIZE,
@@ -74,6 +74,11 @@ FEATURE_NAMES = (
     "ones_8",
     "ones_9",
 )
+
+
+class RankerModel(Protocol):
+    def score_record(self, record: dict[str, Any]) -> list[float]:
+        ...
 
 
 def softmax(scores: list[float]) -> list[float]:
@@ -232,7 +237,7 @@ def record_for_state_moves(state: State, moves: list[Move] | tuple[Move, ...]) -
 
 
 def score_moves(
-    model: "LinearRanker",
+    model: RankerModel,
     state: State,
     moves: list[Move] | tuple[Move, ...],
 ) -> list[tuple[Move, float]]:
@@ -286,7 +291,7 @@ def load_jsonl(path: Path) -> list[dict[str, Any]]:
     return load_jsonl_records(path)
 
 
-def evaluate_ranker(model: LinearRanker, records: list[dict[str, Any]]) -> dict[str, float]:
+def evaluate_ranker(model: RankerModel, records: list[dict[str, Any]]) -> dict[str, float]:
     if not records:
         return {"loss": 0.0, "top1": 0.0, "avg_best_rank": 0.0}
 

@@ -35,10 +35,42 @@ Use the official PyTorch selector and choose:
 RunPod images often already include CUDA/PyTorch. For RunPod, prefer starting
 from a PyTorch template before manually installing CUDA.
 
+After PyTorch is available, the first NN step is a supervised ranker trained on
+the same `training_dataset.jsonl` format as the linear ranker. It scores the
+legal move list directly; it does not use a fixed 36-cell policy head.
+
+```powershell
+python -m sansoku_ai.scripts.train_nn_ranker --train data/train_v2.jsonl --val data/val_v2.jsonl --epochs 10 --output models/nn_ranker_v1.pt
+python -m sansoku_ai.scripts.evaluate_nn_ranker models/nn_ranker_v1.pt data/val_v2.jsonl
+python -m sansoku_ai.scripts.compare_rankers models/linear_ranker_v2.json models/nn_ranker_v1.pt data/val_v2.jsonl --name-a linear --name-b nn
+```
+
+If the NN wins the validation comparison, it can be used by the same ranker-union
+players:
+
+```powershell
+python -m sansoku_ai.scripts.arena --candidate ru3 --opponent-mix ab2:0.5,ab3:0.5 --games 20 --ranker-model models/nn_ranker_v1.pt --candidate-move-limit 8 --opponent-move-limit 8
+python -m sansoku_ai.scripts.generate_mixed_games --games 1000 --workers 8 --endgame 4 --move-limit 8 --policy-mix ab2:0.3,ab3:0.4,ru2:0.15,ru3:0.15 --ranker-model models/nn_ranker_v1.pt --output data/mixed_nn_1000.jsonl
+```
+
+For a longer unattended NN iteration:
+
+```powershell
+.\.venv\Scripts\python.exe -m sansoku_ai.scripts.run_nn_iteration --name nn_iter001 --games 5000 --workers 4 --ranker-model models/nn_ranker_v2.pt --arena-games 40 --arena-strong-games 40 --arena-full-games 4 --arena-strong-full-games 2
+```
+
+The NN loop performs mixed self-play, position sampling, d3/d5 reanalysis, dataset
+building, NN ranker training, komi-16 arena evaluation, and artifact packaging.
+Rerun the same command after an interruption; generated games and reanalysis
+resume where possible, and completed output files are skipped.
+
 ## Mixed game generation
 
 For diverse but still reasonable positions, generate games with a random-ish
 four-ply opening followed by a random mix of `ab2` and `ab3`.
+
+`arena` and `play_match` judge results with komi 16 by default. Use `--komi 0`
+when you intentionally want raw score margins.
 
 Fast local smoke test:
 
@@ -115,6 +147,9 @@ Train and evaluate a dependency-free linear ranker:
 python -m sansoku_ai.scripts.train_linear_ranker --epochs 20 --output models/linear_ranker.json
 python -m sansoku_ai.scripts.evaluate_ranker models/linear_ranker.json data/val.jsonl
 ```
+
+`evaluate_ranker` and `compare_rankers` accept both linear `.json` rankers and
+NN `.pt` rankers.
 
 Use the ranker only as root-candidate union support:
 

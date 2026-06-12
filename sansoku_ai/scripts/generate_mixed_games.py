@@ -12,7 +12,8 @@ from typing import Any
 
 from sansoku_ai.core import Move, initial_state, legal_moves
 from sansoku_ai.players import AlphaBetaPlayer, RankerUnionPlayer
-from sansoku_ai.ranker import LinearRanker
+from sansoku_ai.ranker import RankerModel
+from sansoku_ai.ranker_loader import load_ranker_model
 
 
 @dataclass(frozen=True)
@@ -119,7 +120,7 @@ def play_mixed_game(
     opening_top_k: int,
     opening_temperature: float,
     policy_mix: list[tuple[str, float]],
-    ranker: LinearRanker | None,
+    ranker: RankerModel | None,
     endgame: int,
     move_limit: int | None,
 ) -> GameRecord:
@@ -189,7 +190,7 @@ def play_mixed_game(
 
 
 def play_mixed_game_task(task: GameTask) -> GameRecord:
-    ranker = LinearRanker.load(Path(task.ranker_model)) if task.ranker_model else None
+    ranker = load_ranker_model(Path(task.ranker_model)) if task.ranker_model else None
     return play_mixed_game(
         task.game_idx,
         rng=rng_for_game(task.seed, task.game_idx),
@@ -256,7 +257,7 @@ def iter_generated_games(
     endgame: int,
     move_limit: int | None,
     workers: int,
-    ranker: LinearRanker | None,
+    ranker: RankerModel | None,
 ):
     if workers <= 1:
         for game_idx in game_indices:
@@ -315,7 +316,7 @@ def main() -> None:
     args = parser.parse_args()
 
     policy_mix = tuple(args.policy_mix or [("ab2", args.ab2_prob), ("ab3", 1.0 - args.ab2_prob)])
-    ranker = LinearRanker.load(args.ranker_model) if args.ranker_model is not None else None
+    ranker = load_ranker_model(args.ranker_model) if args.ranker_model is not None else None
     start = perf_counter()
     existing: dict[int, dict[str, Any]] = {}
     if args.output is not None and args.resume:

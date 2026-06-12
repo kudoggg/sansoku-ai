@@ -3,7 +3,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from sansoku_ai.ranker import LinearRanker, evaluate_ranker, load_jsonl
+from sansoku_ai.ranker import evaluate_ranker, load_jsonl
+from sansoku_ai.ranker_loader import load_ranker_model
 
 
 def main() -> None:
@@ -12,7 +13,7 @@ def main() -> None:
     parser.add_argument("data", type=Path)
     args = parser.parse_args()
 
-    model = LinearRanker.load(args.model)
+    model = load_ranker_model(args.model)
     records = load_jsonl(args.data)
     metrics = evaluate_ranker(model, records)
     print(

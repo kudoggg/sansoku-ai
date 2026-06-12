@@ -44,7 +44,7 @@ def maybe_run(
     force: bool,
 ) -> None:
     if output.exists() and not force:
-        print(f"skip existing {output}")
+        print(f"skip existing {output}", flush=True)
         log_step(logs, name, "skipped", 0.0)
         return
     run_step(logs, name, cmd)
@@ -91,29 +91,36 @@ def print_arena_result(path: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--name", required=True, help="Iteration name, e.g. iter003")
+    parser.add_argument("--name", required=True, help="Iteration name, e.g. nn_iter003")
     parser.add_argument("--output-root", type=Path, default=Path("data/iterations"))
-    parser.add_argument("--games", type=int, default=1000)
+    parser.add_argument("--games", type=int, default=5000)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
         "--policy-mix",
-        default="ab2:0.3,ab3:0.4,ru2:0.15,ru3:0.15",
+        default="ab2:0.15,ab3:0.30,ru2:0.25,ru3:0.30",
     )
-    parser.add_argument("--ranker-model", type=Path, default=Path("models/linear_ranker_v2.json"))
+    parser.add_argument("--ranker-model", type=Path, default=Path("models/nn_ranker_v2.pt"))
     parser.add_argument("--endgame", type=int, default=4)
     parser.add_argument("--move-limit", type=int, default=8)
     parser.add_argument("--workers", type=int, default=1)
-    parser.add_argument("--hard-limit", type=int, default=500)
-    parser.add_argument("--train-epochs", type=int, default=10)
-    parser.add_argument("--lr", type=float, default=0.02)
+    parser.add_argument("--hard-limit", type=int, default=1000)
+    parser.add_argument("--train-epochs", type=int, default=20)
+    parser.add_argument("--batch-size", type=int, default=128)
+    parser.add_argument("--lr", type=float, default=0.001)
+    parser.add_argument("--weight-decay", type=float, default=0.0001)
+    parser.add_argument("--target-mode", choices=("best", "policy"), default="best")
+    parser.add_argument("--select-metric", choices=("loss", "top1"), default="top1")
+    parser.add_argument("--device", default="auto")
     parser.add_argument("--no-base-sources", action="store_true")
+    parser.add_argument("--keep-duplicates", action="store_true")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--skip-train", action="store_true")
     parser.add_argument("--skip-arena", action="store_true")
-    parser.add_argument("--arena-games", type=int, default=20)
-    parser.add_argument("--arena-strong-games", type=int, default=0)
-    parser.add_argument("--arena-full-games", type=int, default=0)
-    parser.add_argument("--arena-strong-full-games", type=int, default=0)
+    parser.add_argument("--skip-package", action="store_true")
+    parser.add_argument("--arena-games", type=int, default=40)
+    parser.add_argument("--arena-strong-games", type=int, default=40)
+    parser.add_argument("--arena-full-games", type=int, default=4)
+    parser.add_argument("--arena-strong-full-games", type=int, default=2)
     parser.add_argument("--komi", type=int, default=16)
     args = parser.parse_args()
 
@@ -129,7 +136,7 @@ def main() -> None:
     dataset = run_dir / "training_dataset.jsonl"
     train = run_dir / "train.jsonl"
     val = run_dir / "val.jsonl"
-    model = Path("models") / f"linear_ranker_{args.name}.json"
+    model = Path("models") / f"nn_ranker_{args.name}.pt"
 
     py = sys.executable
 
@@ -158,7 +165,7 @@ def main() -> None:
     ]
     existing_games = count_jsonl(mixed)
     if mixed.exists() and not args.force and existing_games >= args.games:
-        print(f"skip existing {mixed} games={existing_games}/{args.games}")
+        print(f"skip existing {mixed} games={existing_games}/{args.games}", flush=True)
         log_step(step_logs, "generate mixed games", "skipped", 0.0)
     else:
         if mixed.exists() and not args.force:
@@ -200,7 +207,7 @@ def main() -> None:
         "--workers",
         str(args.workers),
         "--progress-every",
-        "500",
+        "1000",
     ]
     if reanalyzed_d3.exists() and not args.force:
         reanalyze_d3_cmd.append("--resume")
@@ -241,7 +248,7 @@ def main() -> None:
         "--workers",
         str(args.workers),
         "--progress-every",
-        "50",
+        "100",
     ]
     if hard_d5.exists() and not args.force:
         reanalyze_d5_cmd.append("--resume")
@@ -257,7 +264,11 @@ def main() -> None:
         str(train),
         "--val-output",
         str(val),
+        "--seed",
+        str(args.seed),
     ]
+    if args.keep_duplicates:
+        build_cmd.append("--keep-duplicates")
     if not args.no_base_sources:
         for source in BASE_SOURCES:
             if Path(source.split(":", 1)[0]).exists():
@@ -275,23 +286,29 @@ def main() -> None:
     if not args.skip_train:
         maybe_run(
             step_logs,
-            "train ranker",
+            "train nn ranker",
             [
                 py,
                 "-m",
-                "sansoku_ai.scripts.train_linear_ranker",
+                "sansoku_ai.scripts.train_nn_ranker",
                 "--train",
                 str(train),
                 "--val",
                 str(val),
                 "--epochs",
                 str(args.train_epochs),
-                "--target-mode",
-                "best",
-                "--select-metric",
-                "top1",
+                "--batch-size",
+                str(args.batch_size),
                 "--lr",
                 str(args.lr),
+                "--weight-decay",
+                str(args.weight_decay),
+                "--target-mode",
+                args.target_mode,
+                "--select-metric",
+                args.select_metric,
+                "--device",
+                args.device,
                 "--output",
                 str(model),
             ],
@@ -300,14 +317,18 @@ def main() -> None:
         )
         run_step(
             step_logs,
-            "evaluate ranker",
+            "evaluate nn ranker",
             [
                 py,
                 "-m",
-                "sansoku_ai.scripts.evaluate_ranker",
+                "sansoku_ai.scripts.evaluate_nn_ranker",
                 str(model),
                 str(val),
-            ]
+                "--batch-size",
+                str(args.batch_size),
+                "--device",
+                args.device,
+            ],
         )
 
     arena_model = model if model.exists() else args.ranker_model
@@ -445,6 +466,13 @@ def main() -> None:
             ],
             run_dir / "arena_ru3_vs_ab34_full.json",
             force=args.force,
+        )
+
+    if not args.skip_package:
+        run_step(
+            step_logs,
+            "package iteration",
+            [py, "-m", "sansoku_ai.scripts.package_iteration", args.name],
         )
 
     print(f"\niteration complete: {args.name}")

@@ -5,7 +5,7 @@ from math import inf
 from time import perf_counter
 
 from .core import CORNERS, Move, Player, State, is_edge_index, legal_moves
-from .ranker import LinearRanker, score_moves
+from .ranker import RankerModel, score_moves
 
 
 EXACT = "EXACT"
@@ -279,7 +279,7 @@ class RankerUnionSearch(AlphaBetaSearch):
     def __init__(
         self,
         *,
-        ranker: LinearRanker,
+        ranker: RankerModel,
         depth: int = 4,
         endgame_exact_remaining: int = 8,
         weights: EvalWeights | None = None,

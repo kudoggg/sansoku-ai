@@ -9,7 +9,8 @@ from time import perf_counter
 
 from sansoku_ai.core import Move, Player, State, initial_state, legal_moves
 from sansoku_ai.players import AlphaBetaPlayer, GreedyPlayer, RankerUnionPlayer, SansokuPlayer
-from sansoku_ai.ranker import LinearRanker
+from sansoku_ai.ranker import RankerModel
+from sansoku_ai.ranker_loader import load_ranker_model
 from sansoku_ai.scripts.generate_mixed_games import parse_policy_mix, softmax_choice
 
 
@@ -20,6 +21,7 @@ class ArenaGame:
     first_score: int
     second_score: int
     candidate_margin: int
+    raw_candidate_margin: int
     moves: int
     elapsed_sec: float
 
@@ -103,7 +105,7 @@ class MixedActor(Actor):
 def make_player(
     spec: str,
     *,
-    ranker: LinearRanker | None,
+    ranker: RankerModel | None,
     endgame: int,
     move_limit: int | None,
     union_value_moves: int,
@@ -138,7 +140,7 @@ def make_player(
 def make_fixed_actor(
     spec: str,
     *,
-    ranker: LinearRanker | None,
+    ranker: RankerModel | None,
     endgame: int,
     move_limit: int | None,
     union_value_moves: int,
@@ -164,7 +166,7 @@ def make_fixed_actor(
 def make_mixed_actor(
     mix: list[tuple[str, float]],
     *,
-    ranker: LinearRanker | None,
+    ranker: RankerModel | None,
     endgame: int,
     move_limit: int | None,
     union_value_moves: int,
@@ -214,6 +216,7 @@ def play_arena_game(
     candidate_side: Player,
     candidate_actor: Actor,
     opponent_actor: Actor,
+    komi: int,
     opening_plies: int,
     opening_top_k: int,
     opening_temperature: float,
@@ -239,7 +242,8 @@ def play_arena_game(
         candidate_side=int(candidate_side),
         first_score=state.first_score,
         second_score=state.second_score,
-        candidate_margin=state.margin_for(candidate_side),
+        candidate_margin=state.margin_for(candidate_side, komi),
+        raw_candidate_margin=state.margin_for(candidate_side),
         moves=state.moves_played,
         elapsed_sec=perf_counter() - start,
     )
@@ -265,13 +269,14 @@ def main() -> None:
     parser.add_argument("--union-ranker-moves", type=int, default=8)
     parser.add_argument("--union-defense-moves", type=int, default=4)
     parser.add_argument("--union-max-root-moves", type=int, default=24)
+    parser.add_argument("--komi", type=int, default=16)
     parser.add_argument("--output", type=Path, default=None)
     parser.add_argument("--progress-every", type=int, default=10)
     args = parser.parse_args()
 
-    candidate_ranker = LinearRanker.load(args.ranker_model) if args.ranker_model else None
+    candidate_ranker = load_ranker_model(args.ranker_model) if args.ranker_model else None
     opponent_ranker_path = args.opponent_ranker_model or args.ranker_model
-    opponent_ranker = LinearRanker.load(opponent_ranker_path) if opponent_ranker_path else None
+    opponent_ranker = load_ranker_model(opponent_ranker_path) if opponent_ranker_path else None
     rng = random.Random(args.seed)
     candidate_move_limit = None if args.full_candidate else args.candidate_move_limit
     opponent_move_limit = None if args.full_opponent else args.opponent_move_limit
@@ -309,6 +314,7 @@ def main() -> None:
             candidate_side=candidate_side,
             candidate_actor=candidate_actor,
             opponent_actor=opponent_actor,
+            komi=args.komi,
             opening_plies=args.opening_plies,
             opening_top_k=args.opening_top_k,
             opening_temperature=args.opening_temperature,
@@ -333,7 +339,7 @@ def main() -> None:
     by_side = summarize_by_side(results)
     print(
         f"summary candidate={args.candidate} opponent_mix={args.opponent_mix} "
-        f"games={args.games} wins={wins} losses={losses} draws={draws} "
+        f"games={args.games} komi={args.komi} wins={wins} losses={losses} draws={draws} "
         f"avg_margin={total_margin / args.games:+.2f} elapsed={elapsed:.2f}s"
     )
     print(
@@ -349,6 +355,7 @@ def main() -> None:
             "candidate": args.candidate,
             "opponent_mix": args.opponent_mix,
             "games": args.games,
+            "komi": args.komi,
             "wins": wins,
             "losses": losses,
             "draws": draws,
