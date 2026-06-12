@@ -102,7 +102,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
         "--policy-mix",
-        default="ab2:0.15,ab3:0.30,ru2:0.25,ru3:0.30",
+        default="ab2:0.35,ab3:0.50,ru2:0.10,ru3:0.05",
     )
     parser.add_argument("--ranker-model", type=Path, default=Path("models/nn_ranker_v2.pt"))
     parser.add_argument("--endgame", type=int, default=4)

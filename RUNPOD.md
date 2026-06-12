@@ -181,6 +181,31 @@ nohup python -m sansoku_ai.scripts.run_nn_cycle \
 tail -f logs/nn_runpod_cycle.log
 ```
 
+If game generation stalls or the process is killed by `SIGKILL`, first run a
+lighter generation mix. This still trains from alpha-beta reanalysis, but avoids
+loading the NN ranker during the game-generation step:
+
+```bash
+mkdir -p logs
+nohup python -m sansoku_ai.scripts.run_nn_cycle \
+  --prefix nn_runpod_fast \
+  --cycles 2 \
+  --initial-ranker-model models/nn_ranker_v2.pt \
+  --games 300 \
+  --workers 1 \
+  --hard-limit 200 \
+  --train-epochs 12 \
+  --batch-size 128 \
+  --policy-mix ab2:0.40,ab3:0.60 \
+  --arena-games 20 \
+  --arena-strong-games 20 \
+  --arena-full-games 2 \
+  --arena-strong-full-games 2 \
+  --promote-games 30 \
+  > logs/nn_runpod_fast.log 2>&1 &
+tail -f logs/nn_runpod_fast.log
+```
+
 To check whether it is still running:
 
 ```bash

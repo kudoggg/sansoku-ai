@@ -84,6 +84,10 @@ def choose_policy(mix: list[tuple[str, float]], rng: random.Random) -> str:
     return mix[-1][0]
 
 
+def policy_mix_uses_ranker(mix: tuple[tuple[str, float], ...] | list[tuple[str, float]]) -> bool:
+    return any(name.startswith("ru") and weight > 0 for name, weight in mix)
+
+
 def softmax_choice(
     moves: tuple[Move, ...],
     *,
@@ -202,7 +206,8 @@ def play_mixed_game(
 
 
 def play_mixed_game_task(task: GameTask) -> GameRecord:
-    ranker = load_ranker_model(Path(task.ranker_model)) if task.ranker_model else None
+    needs_ranker = policy_mix_uses_ranker(task.policy_mix)
+    ranker = load_ranker_model(Path(task.ranker_model)) if task.ranker_model and needs_ranker else None
     return play_mixed_game(
         task.game_idx,
         rng=rng_for_game(task.seed, task.game_idx),
@@ -294,7 +299,7 @@ def iter_generated_games(
             opening_top_k=opening_top_k,
             opening_temperature=opening_temperature,
             policy_mix=policy_mix,
-            ranker_model=str(ranker_model) if ranker_model is not None else None,
+            ranker_model=str(ranker_model) if ranker_model is not None and policy_mix_uses_ranker(policy_mix) else None,
             endgame=endgame,
             move_limit=move_limit,
         )
@@ -328,7 +333,8 @@ def main() -> None:
     args = parser.parse_args()
 
     policy_mix = tuple(args.policy_mix or [("ab2", args.ab2_prob), ("ab3", 1.0 - args.ab2_prob)])
-    ranker = load_ranker_model(args.ranker_model) if args.ranker_model is not None else None
+    needs_ranker = policy_mix_uses_ranker(policy_mix)
+    ranker = load_ranker_model(args.ranker_model) if args.ranker_model is not None and needs_ranker else None
     start = perf_counter()
     existing: dict[int, dict[str, Any]] = {}
     if args.output is not None and args.resume:
@@ -358,7 +364,7 @@ def main() -> None:
             opening_top_k=args.opening_top_k,
             opening_temperature=args.opening_temperature,
             policy_mix=policy_mix,
-            ranker_model=args.ranker_model,
+            ranker_model=args.ranker_model if needs_ranker else None,
             endgame=args.endgame,
             move_limit=args.move_limit,
             workers=max(1, args.workers),
