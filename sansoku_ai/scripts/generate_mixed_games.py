@@ -11,7 +11,7 @@ from time import perf_counter
 from typing import Any
 
 from sansoku_ai.core import Move, initial_state, legal_moves
-from sansoku_ai.players import AlphaBetaPlayer, RankerUnionPlayer
+from sansoku_ai.players import AlphaBetaPlayer, RankerUnionPlayer, with_endgame_exact
 from sansoku_ai.ranker import RankerModel
 from sansoku_ai.ranker_loader import load_ranker_model
 
@@ -126,23 +126,35 @@ def play_mixed_game(
 ) -> GameRecord:
     state = initial_state()
     players = {
-        "ab2": AlphaBetaPlayer(depth=2, endgame_exact_remaining=endgame, move_limit=move_limit),
-        "ab3": AlphaBetaPlayer(depth=3, endgame_exact_remaining=endgame, move_limit=move_limit),
+        "ab2": with_endgame_exact(
+            AlphaBetaPlayer(depth=2, endgame_exact_remaining=endgame, move_limit=move_limit),
+            endgame_exact_remaining=endgame,
+        ),
+        "ab3": with_endgame_exact(
+            AlphaBetaPlayer(depth=3, endgame_exact_remaining=endgame, move_limit=move_limit),
+            endgame_exact_remaining=endgame,
+        ),
     }
     if any(name.startswith("ru") for name, _weight in policy_mix):
         if ranker is None:
             raise ValueError("--ranker-model is required when policy mix includes ru players")
-        players["ru2"] = RankerUnionPlayer(
-            ranker=ranker,
-            depth=2,
+        players["ru2"] = with_endgame_exact(
+            RankerUnionPlayer(
+                ranker=ranker,
+                depth=2,
+                endgame_exact_remaining=endgame,
+                move_limit=move_limit,
+            ),
             endgame_exact_remaining=endgame,
-            move_limit=move_limit,
         )
-        players["ru3"] = RankerUnionPlayer(
-            ranker=ranker,
-            depth=3,
+        players["ru3"] = with_endgame_exact(
+            RankerUnionPlayer(
+                ranker=ranker,
+                depth=3,
+                endgame_exact_remaining=endgame,
+                move_limit=move_limit,
+            ),
             endgame_exact_remaining=endgame,
-            move_limit=move_limit,
         )
     records: list[PlyRecord] = []
 

@@ -8,7 +8,13 @@ from pathlib import Path
 from time import perf_counter
 
 from sansoku_ai.core import Move, Player, State, initial_state, legal_moves
-from sansoku_ai.players import AlphaBetaPlayer, GreedyPlayer, RankerUnionPlayer, SansokuPlayer
+from sansoku_ai.players import (
+    AlphaBetaPlayer,
+    GreedyPlayer,
+    RankerUnionPlayer,
+    SansokuPlayer,
+    with_endgame_exact,
+)
 from sansoku_ai.ranker import RankerModel
 from sansoku_ai.ranker_loader import load_ranker_model
 from sansoku_ai.scripts.generate_mixed_games import parse_policy_mix, softmax_choice
@@ -114,25 +120,34 @@ def make_player(
     union_max_root_moves: int,
 ) -> SansokuPlayer:
     if spec == "greedy":
-        return GreedyPlayer()
-    if spec.startswith("ab"):
-        return AlphaBetaPlayer(
-            depth=int(spec[2:]),
+        return with_endgame_exact(
+            GreedyPlayer(),
             endgame_exact_remaining=endgame,
-            move_limit=move_limit,
+        )
+    if spec.startswith("ab"):
+        return with_endgame_exact(
+            AlphaBetaPlayer(
+                depth=int(spec[2:]),
+                endgame_exact_remaining=endgame,
+                move_limit=move_limit,
+            ),
+            endgame_exact_remaining=endgame,
         )
     if spec.startswith("ru"):
         if ranker is None:
             raise ValueError("ranker model is required for ru players")
-        return RankerUnionPlayer(
-            ranker=ranker,
-            depth=int(spec[2:]),
+        return with_endgame_exact(
+            RankerUnionPlayer(
+                ranker=ranker,
+                depth=int(spec[2:]),
+                endgame_exact_remaining=endgame,
+                move_limit=move_limit,
+                value_moves=union_value_moves,
+                ranker_moves=union_ranker_moves,
+                defense_moves=union_defense_moves,
+                max_root_moves=union_max_root_moves,
+            ),
             endgame_exact_remaining=endgame,
-            move_limit=move_limit,
-            value_moves=union_value_moves,
-            ranker_moves=union_ranker_moves,
-            defense_moves=union_defense_moves,
-            max_root_moves=union_max_root_moves,
         )
     raise ValueError(f"unknown player spec: {spec}")
 
@@ -270,9 +285,16 @@ def main() -> None:
     parser.add_argument("--union-defense-moves", type=int, default=4)
     parser.add_argument("--union-max-root-moves", type=int, default=24)
     parser.add_argument("--komi", type=int, default=16)
+    parser.add_argument("--allow-odd-games", action="store_true")
     parser.add_argument("--output", type=Path, default=None)
     parser.add_argument("--progress-every", type=int, default=10)
     args = parser.parse_args()
+
+    if args.games % 2 != 0 and not args.allow_odd_games:
+        raise SystemExit(
+            "--games must be even so the candidate plays first and second equally; "
+            "pass --allow-odd-games for a one-off smoke test."
+        )
 
     candidate_ranker = load_ranker_model(args.ranker_model) if args.ranker_model else None
     opponent_ranker_path = args.opponent_ranker_model or args.ranker_model

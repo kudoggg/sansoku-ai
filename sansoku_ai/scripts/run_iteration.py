@@ -89,6 +89,11 @@ def print_arena_result(path: Path) -> None:
         )
 
 
+def require_even_games(value: int, name: str) -> None:
+    if value > 0 and value % 2 != 0:
+        raise SystemExit(f"{name} must be even so first/second games are balanced")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--name", required=True, help="Iteration name, e.g. iter003")
@@ -116,6 +121,11 @@ def main() -> None:
     parser.add_argument("--arena-strong-full-games", type=int, default=0)
     parser.add_argument("--komi", type=int, default=16)
     args = parser.parse_args()
+
+    require_even_games(args.arena_games, "--arena-games")
+    require_even_games(args.arena_strong_games, "--arena-strong-games")
+    require_even_games(args.arena_full_games, "--arena-full-games")
+    require_even_games(args.arena_strong_full_games, "--arena-strong-full-games")
 
     step_logs: list[tuple[str, str, float]] = []
     run_dir = args.output_root / args.name

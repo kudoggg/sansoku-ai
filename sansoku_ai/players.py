@@ -42,6 +42,42 @@ class GreedyPlayer:
         return max(moves, key=lambda mv: (mv.value, mv.index))
 
 
+class EndgameExactPlayer:
+    def __init__(
+        self,
+        player: SansokuPlayer,
+        *,
+        endgame_exact_remaining: int = 4,
+        name: str | None = None,
+    ) -> None:
+        self.player = player
+        self.endgame_exact_remaining = endgame_exact_remaining
+        self.exact_search = AlphaBetaSearch(
+            depth=1,
+            endgame_exact_remaining=endgame_exact_remaining,
+            move_limit=None,
+        )
+        self.name = name or f"{player.name}+exact{endgame_exact_remaining}"
+
+    def choose(self, state: State) -> Move:
+        if self.endgame_exact_remaining > 0 and state.remaining() <= self.endgame_exact_remaining:
+            result = self.exact_search.choose(state)
+            if result.move is None:
+                raise ValueError("no legal moves")
+            return result.move
+        return self.player.choose(state)
+
+
+def with_endgame_exact(
+    player: SansokuPlayer,
+    *,
+    endgame_exact_remaining: int = 4,
+) -> SansokuPlayer:
+    if endgame_exact_remaining <= 0:
+        return player
+    return EndgameExactPlayer(player, endgame_exact_remaining=endgame_exact_remaining)
+
+
 class AlphaBetaPlayer:
     def __init__(
         self,

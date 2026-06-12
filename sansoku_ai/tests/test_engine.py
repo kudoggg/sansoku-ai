@@ -7,7 +7,7 @@ from pathlib import Path
 
 from sansoku_ai.core import EMPTY_OWNER, Move, State, initial_state, legal_moves
 from sansoku_ai.jsonl import load_jsonl_records
-from sansoku_ai.players import GreedyPlayer
+from sansoku_ai.players import GreedyPlayer, with_endgame_exact
 from sansoku_ai.search import AlphaBetaSearch
 
 
@@ -60,6 +60,15 @@ def test_exact_search_matches_naive_minimax_on_small_endgames() -> None:
         result = search.choose(state)
         assert result.exact
         assert result.value == naive_exact(state)
+
+
+def test_endgame_exact_wrapper_overrides_base_policy() -> None:
+    player = with_endgame_exact(GreedyPlayer(), endgame_exact_remaining=4)
+    for seed in range(3):
+        state = random_state(target_remaining=4, seed=seed + 20)
+        exact_value = naive_exact(state)
+        move = player.choose(state)
+        assert -naive_exact(state.apply(move)) == exact_value
 
 
 def test_jsonl_loader_skips_bad_lines() -> None:

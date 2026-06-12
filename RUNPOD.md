@@ -141,6 +141,12 @@ komi 16. If the new model wins more games than it loses and has positive average
 margin, it is promoted and the next cycle uses it. If it fails the promotion
 gate, the cycle stops unless `--continue-on-fail` is added.
 
+All generated games and arena games use root endgame exact reading when
+`remaining <= --endgame`. The recommended cycle command keeps `--endgame 4`,
+so even greedy/ranker-union choices switch to full alpha-beta reading for the
+last four moves. Arena game counts and promotion game counts must be even so the
+candidate plays first and second equally.
+
 This is still a fixed-teacher bootstrap: positions come from the current
 champion's self-play/mixed play, but labels are produced by the alpha-beta
 reanalyzer. That keeps the target stable while the training distribution becomes

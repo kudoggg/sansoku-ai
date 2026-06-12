@@ -91,6 +91,11 @@ def write_summary(path: Path, payload: dict) -> None:
     print(f"wrote {path}", flush=True)
 
 
+def require_even_games(value: int, name: str) -> None:
+    if value > 0 and value % 2 != 0:
+        raise SystemExit(f"{name} must be even so first/second games are balanced")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
@@ -147,6 +152,11 @@ def main() -> None:
         raise SystemExit("--cycles must be at least 1")
     if args.promote_games < 2:
         raise SystemExit("--promote-games should be at least 2")
+    require_even_games(args.arena_games, "--arena-games")
+    require_even_games(args.arena_strong_games, "--arena-strong-games")
+    require_even_games(args.arena_full_games, "--arena-full-games")
+    require_even_games(args.arena_strong_full_games, "--arena-strong-full-games")
+    require_even_games(args.promote_games, "--promote-games")
 
     py = sys.executable
     champion = args.champion_model or Path("models") / f"nn_ranker_{args.prefix}_champion.pt"
