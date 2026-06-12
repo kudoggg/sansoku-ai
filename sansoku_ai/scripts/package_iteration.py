@@ -31,6 +31,7 @@ def main() -> None:
     log = Path("logs") / f"{args.name}.log"
     run_dir = Path("data") / "iterations" / args.name
     arena_files = sorted(run_dir.glob("arena_*.json")) if run_dir.exists() else []
+    mined_files = sorted(run_dir.glob("mined_*.jsonl")) if run_dir.exists() else []
 
     added = 0
     with tarfile.open(output, "w:gz") as archive:
@@ -38,6 +39,8 @@ def main() -> None:
             added += add_if_exists(archive, model)
         added += add_if_exists(archive, log)
         for path in arena_files:
+            added += add_if_exists(archive, path)
+        for path in mined_files:
             added += add_if_exists(archive, path)
         if args.include_data:
             added += add_if_exists(archive, run_dir)

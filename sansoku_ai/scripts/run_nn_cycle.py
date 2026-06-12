@@ -29,6 +29,17 @@ def read_arena(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def count_jsonl(path: Path) -> int:
+    if not path.exists():
+        return 0
+    count = 0
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                count += 1
+    return count
+
+
 def copy_model(source: Path, target: Path) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, target)
@@ -91,6 +102,13 @@ def write_summary(path: Path, payload: dict) -> None:
     print(f"wrote {path}", flush=True)
 
 
+def cycle_index_from_name(name: str) -> int | None:
+    try:
+        return int(name.rsplit("_", 1)[1])
+    except (IndexError, ValueError):
+        return None
+
+
 def require_even_games(value: int, name: str) -> None:
     if value > 0 and value % 2 != 0:
         raise SystemExit(f"{name} must be even so first/second games are balanced")
@@ -146,6 +164,14 @@ def main() -> None:
     parser.add_argument("--promote-min-second-margin", type=float, default=None)
     parser.add_argument("--promote-full", action="store_true")
     parser.add_argument("--continue-on-fail", action="store_true")
+    parser.add_argument("--disable-promotion-mining", action="store_true")
+    parser.add_argument("--mined-limit", type=int, default=300)
+    parser.add_argument("--mined-high-value", type=int, default=10)
+    parser.add_argument("--mined-depth", type=int, default=5)
+    parser.add_argument("--mined-root-limit", type=int, default=16)
+    parser.add_argument("--mined-move-limit", type=int, default=12)
+    parser.add_argument("--mined-weight", type=float, default=7.0)
+    parser.add_argument("--mined-quality", type=int, default=45)
     args = parser.parse_args()
 
     if args.cycles < 1:
@@ -184,6 +210,12 @@ def main() -> None:
         except json.JSONDecodeError:
             pass
 
+    carry_sources: list[str] = [
+        str(cycle["mined_source_for_next_cycle"])
+        for cycle in summary.get("cycles", [])
+        if cycle.get("mined_source_for_next_cycle")
+        and (cycle_index_from_name(str(cycle.get("name", ""))) or 0) < args.start_index
+    ]
     for offset in range(args.cycles):
         cycle_index = args.start_index + offset
         name = f"{args.prefix}_{cycle_index:03d}"
@@ -196,6 +228,8 @@ def main() -> None:
             f"\ncycle_start name={name} champion={champion} seed={cycle_seed}",
             flush=True,
         )
+        if carry_sources:
+            print("extra_sources " + " ".join(carry_sources), flush=True)
 
         iteration_cmd = [
             py,
@@ -255,6 +289,8 @@ def main() -> None:
             iteration_cmd.append("--keep-duplicates")
         if args.force:
             iteration_cmd.append("--force")
+        for source in carry_sources:
+            iteration_cmd.extend(["--extra-source", source])
 
         run(iteration_cmd)
         if not model.exists():
@@ -288,6 +324,8 @@ def main() -> None:
             str(promotion_arena),
             "--progress-every",
             str(max(1, args.promote_games // 2)),
+            "--record-games",
+            "--record-losses-only",
         ]
         if args.promote_full:
             promotion_cmd.extend(["--full-candidate", "--full-opponent"])
@@ -304,6 +342,59 @@ def main() -> None:
         print(f"promotion_arena {arena_line(promotion_payload)}", flush=True)
         print("promotion_reasons " + "; ".join(reasons), flush=True)
         print(f"promotion_decision promoted={promoted}", flush=True)
+
+        mined_source = None
+        mined_positions = run_dir / "mined_promotion_positions.jsonl"
+        mined_d5 = run_dir / "mined_promotion_d5.jsonl"
+        if not args.disable_promotion_mining and int(promotion_payload["losses"]) > 0:
+            mine_cmd = [
+                py,
+                "-m",
+                "sansoku_ai.scripts.mine_arena_hard_positions",
+                str(promotion_arena),
+                "--output",
+                str(mined_positions),
+                "--limit",
+                str(args.mined_limit),
+                "--high-value",
+                str(args.mined_high_value),
+                "--id-prefix",
+                name,
+                "--include-all-candidate-loss-moves",
+            ]
+            run_if_missing(mine_cmd, mined_positions, force=args.force)
+            mined_count = count_jsonl(mined_positions)
+            print(f"promotion_mining positions={mined_count} path={mined_positions}", flush=True)
+            if mined_count > 0:
+                reanalyze_mined_cmd = [
+                    py,
+                    "-m",
+                    "sansoku_ai.scripts.reanalyze_positions",
+                    str(mined_positions),
+                    "--output",
+                    str(mined_d5),
+                    "--depth",
+                    str(args.mined_depth),
+                    "--endgame",
+                    str(args.endgame),
+                    "--root-limit",
+                    str(args.mined_root_limit),
+                    "--move-limit",
+                    str(args.mined_move_limit),
+                    "--workers",
+                    str(args.workers),
+                    "--progress-every",
+                    str(max(1, mined_count // 2)),
+                ]
+                if mined_d5.exists() and not args.force:
+                    reanalyze_mined_cmd.append("--resume")
+                run_if_missing(reanalyze_mined_cmd, mined_d5, force=args.force)
+                mined_source = (
+                    f"{mined_d5}:{name}_promotion_mined:"
+                    f"{args.mined_weight:g}:{args.mined_quality}"
+                )
+                carry_sources.append(mined_source)
+                print(f"next_cycle_extra_source {mined_source}", flush=True)
 
         if not args.skip_package:
             run([py, "-m", "sansoku_ai.scripts.package_iteration", name])
@@ -324,6 +415,9 @@ def main() -> None:
                 "by_side": promotion_payload.get("by_side"),
                 "reasons": reasons,
             },
+            "mined_positions": str(mined_positions) if mined_positions.exists() else None,
+            "mined_reanalysis": str(mined_d5) if mined_d5.exists() else None,
+            "mined_source_for_next_cycle": mined_source,
         }
         summary["cycles"].append(cycle_record)
 

@@ -6,6 +6,7 @@ import random
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from time import perf_counter
+from typing import Any
 
 from sansoku_ai.core import Move, Player, State, initial_state, legal_moves
 from sansoku_ai.players import (
@@ -235,24 +236,59 @@ def play_arena_game(
     opening_plies: int,
     opening_top_k: int,
     opening_temperature: float,
-) -> ArenaGame:
+) -> tuple[ArenaGame, dict[str, Any]]:
     start = perf_counter()
-    state = apply_random_opening(
-        initial_state(),
-        rng=rng,
-        plies=opening_plies,
-        top_k=opening_top_k,
-        temperature=opening_temperature,
-    )
+    state = initial_state()
+    move_records: list[dict[str, Any]] = []
+    while state.moves_played < opening_plies and state.remaining() > 0:
+        moves = legal_moves(state)
+        if not moves:
+            break
+        move = softmax_choice(
+            moves,
+            rng=rng,
+            top_k=opening_top_k,
+            temperature=opening_temperature,
+        )
+        move_records.append(
+            {
+                "ply": state.moves_played + 1,
+                "player": int(state.current),
+                "actor": "opening",
+                "policy": "opening_softmax",
+                "row": move.row,
+                "col": move.col,
+                "value": move.value,
+                "first_score_before": state.first_score,
+                "second_score_before": state.second_score,
+                "remaining_before": state.remaining(),
+            }
+        )
+        state = state.apply(move)
+
     while state.remaining() > 0:
         moves = legal_moves(state)
         if not moves:
             break
         actor = candidate_actor if state.current == candidate_side else opponent_actor
         move, _label = actor.choose(state, rng)
+        move_records.append(
+            {
+                "ply": state.moves_played + 1,
+                "player": int(state.current),
+                "actor": "candidate" if state.current == candidate_side else "opponent",
+                "policy": _label,
+                "row": move.row,
+                "col": move.col,
+                "value": move.value,
+                "first_score_before": state.first_score,
+                "second_score_before": state.second_score,
+                "remaining_before": state.remaining(),
+            }
+        )
         state = state.apply(move)
 
-    return ArenaGame(
+    result = ArenaGame(
         game=game_idx,
         candidate_side=int(candidate_side),
         first_score=state.first_score,
@@ -262,6 +298,17 @@ def play_arena_game(
         moves=state.moves_played,
         elapsed_sec=perf_counter() - start,
     )
+    game_record = {
+        "game": game_idx,
+        "candidate_side": int(candidate_side),
+        "first_score": state.first_score,
+        "second_score": state.second_score,
+        "candidate_margin": result.candidate_margin,
+        "raw_candidate_margin": result.raw_candidate_margin,
+        "komi": komi,
+        "moves": move_records,
+    }
+    return result, game_record
 
 
 def main() -> None:
@@ -286,6 +333,16 @@ def main() -> None:
     parser.add_argument("--union-max-root-moves", type=int, default=24)
     parser.add_argument("--komi", type=int, default=16)
     parser.add_argument("--allow-odd-games", action="store_true")
+    parser.add_argument(
+        "--record-games",
+        action="store_true",
+        help="Store move histories in the output JSON for later hard-position mining.",
+    )
+    parser.add_argument(
+        "--record-losses-only",
+        action="store_true",
+        help="When recording games, keep only candidate losses.",
+    )
     parser.add_argument("--output", type=Path, default=None)
     parser.add_argument("--progress-every", type=int, default=10)
     args = parser.parse_args()
@@ -304,6 +361,7 @@ def main() -> None:
     opponent_move_limit = None if args.full_opponent else args.opponent_move_limit
 
     results: list[ArenaGame] = []
+    recorded_games: list[dict[str, Any]] = []
     start = perf_counter()
     wins = losses = draws = 0
     total_margin = 0
@@ -330,7 +388,7 @@ def main() -> None:
             union_defense_moves=args.union_defense_moves,
             union_max_root_moves=args.union_max_root_moves,
         )
-        result = play_arena_game(
+        result, game_record = play_arena_game(
             game_idx,
             rng=rng,
             candidate_side=candidate_side,
@@ -342,6 +400,10 @@ def main() -> None:
             opening_temperature=args.opening_temperature,
         )
         results.append(result)
+        if args.record_games and (
+            not args.record_losses_only or result.candidate_margin < 0
+        ):
+            recorded_games.append(game_record)
         total_margin += result.candidate_margin
         if result.candidate_margin > 0:
             wins += 1
@@ -385,6 +447,7 @@ def main() -> None:
             "elapsed_sec": elapsed,
             "by_side": by_side,
             "results": [asdict(result) for result in results],
+            "recorded_games": recorded_games,
         }
         args.output.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         print(f"wrote {args.output}")

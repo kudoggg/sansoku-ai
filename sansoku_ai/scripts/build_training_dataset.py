@@ -268,6 +268,22 @@ def write_jsonl(path: Path, records: list[dict[str, Any]]) -> None:
             f.write(json.dumps(record, separators=(",", ":")) + "\n")
 
 
+def side_weight_summary(records: list[dict[str, Any]]) -> str:
+    counts = {1: 0, 2: 0}
+    weights = {1: 0.0, 2: 0.0}
+    for record in records:
+        side = int(record["state"]["current"])
+        counts[side] = counts.get(side, 0) + 1
+        weights[side] = weights.get(side, 0.0) + float(record.get("sample_weight", 1.0))
+    total = max(1, len(records))
+    return (
+        f"current_side first={counts.get(1, 0)} ({counts.get(1, 0) / total:.1%}) "
+        f"second={counts.get(2, 0)} ({counts.get(2, 0) / total:.1%}) "
+        f"weight_first={weights.get(1, 0.0):.1f} "
+        f"weight_second={weights.get(2, 0.0):.1f}"
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -369,6 +385,7 @@ def main() -> None:
             f"analyzed_count avg={mean(analyzed_counts):.2f} "
             f"min={min(analyzed_counts)} max={max(analyzed_counts)}"
         )
+        print(side_weight_summary(examples))
 
 
 if __name__ == "__main__":

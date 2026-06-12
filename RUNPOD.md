@@ -158,6 +158,12 @@ train/validation split is made before augmentation, so symmetric copies of the
 same position do not leak across the split. Add `--no-symmetry-augment` only for
 diagnostic runs where you want the old smaller dataset.
 
+Promotion arenas record candidate losses. The cycle runner mines those games for
+hard examples, especially candidate-second losses and candidate moves that let
+the opponent write a value of 10 or more. The mined positions are reanalyzed and
+automatically added as an extra weighted source in the next cycle. Training logs
+also print the current-player first/second balance and sample-weight totals.
+
 Make sure the initial NN model exists on the pod first, for example
 `models/nn_ranker_v2.pt`.
 
@@ -204,6 +210,32 @@ nohup python -m sansoku_ai.scripts.run_nn_cycle \
   --promote-games 30 \
   > logs/nn_runpod_fast.log 2>&1 &
 tail -f logs/nn_runpod_fast.log
+```
+
+For a more automated overnight bootstrap, keep going even when a candidate does
+not promote. The failed model is not accepted, but its promotion losses become
+the next cycle's hard-mining source:
+
+```bash
+mkdir -p logs
+nohup python -m sansoku_ai.scripts.run_nn_cycle \
+  --prefix nn_runpod_mine \
+  --cycles 4 \
+  --initial-ranker-model models/nn_ranker_v2.pt \
+  --games 1000 \
+  --workers 1 \
+  --hard-limit 500 \
+  --train-epochs 20 \
+  --batch-size 128 \
+  --policy-mix ab2:0.35,ab3:0.50,ru2:0.10,ru3:0.05 \
+  --arena-games 40 \
+  --arena-strong-games 40 \
+  --arena-full-games 4 \
+  --arena-strong-full-games 2 \
+  --promote-games 60 \
+  --continue-on-fail \
+  > logs/nn_runpod_mine.log 2>&1 &
+tail -f logs/nn_runpod_mine.log
 ```
 
 To check whether it is still running:

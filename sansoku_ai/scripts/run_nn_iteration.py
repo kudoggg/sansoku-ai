@@ -117,6 +117,12 @@ def main() -> None:
     parser.add_argument("--select-metric", choices=("loss", "top1"), default="top1")
     parser.add_argument("--device", default="auto")
     parser.add_argument("--no-base-sources", action="store_true")
+    parser.add_argument(
+        "--extra-source",
+        action="append",
+        default=[],
+        help="Additional reanalyzed source as PATH:TIER:WEIGHT:QUALITY.",
+    )
     parser.add_argument("--no-symmetry-augment", action="store_true")
     parser.add_argument("--keep-duplicates", action="store_true")
     parser.add_argument("--force", action="store_true")
@@ -294,6 +300,8 @@ def main() -> None:
             f"{hard_d5}:{args.name}_d5_root16_move12:5:35",
         ]
     )
+    for source in args.extra_source:
+        build_cmd.extend(["--source", source])
     maybe_run(step_logs, "build training dataset", build_cmd, dataset, force=args.force)
 
     if not args.skip_train:
