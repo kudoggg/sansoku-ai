@@ -125,6 +125,7 @@ def main() -> None:
     parser.add_argument("--select-metric", choices=("loss", "top1"), default="top1")
     parser.add_argument("--device", default="auto")
     parser.add_argument("--no-base-sources", action="store_true")
+    parser.add_argument("--no-symmetry-augment", action="store_true")
     parser.add_argument("--keep-duplicates", action="store_true")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--skip-fixed-arena", action="store_true")
@@ -238,6 +239,8 @@ def main() -> None:
         ]
         if args.no_base_sources:
             iteration_cmd.append("--no-base-sources")
+        if args.no_symmetry_augment:
+            iteration_cmd.append("--no-symmetry-augment")
         if args.keep_duplicates:
             iteration_cmd.append("--keep-duplicates")
         if args.force:

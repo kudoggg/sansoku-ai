@@ -112,6 +112,7 @@ def main() -> None:
     parser.add_argument("--select-metric", choices=("loss", "top1"), default="top1")
     parser.add_argument("--device", default="auto")
     parser.add_argument("--no-base-sources", action="store_true")
+    parser.add_argument("--no-symmetry-augment", action="store_true")
     parser.add_argument("--keep-duplicates", action="store_true")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--skip-train", action="store_true")
@@ -269,6 +270,8 @@ def main() -> None:
     ]
     if args.keep_duplicates:
         build_cmd.append("--keep-duplicates")
+    if not args.no_symmetry_augment:
+        build_cmd.append("--symmetry-augment")
     if not args.no_base_sources:
         for source in BASE_SOURCES:
             if Path(source.split(":", 1)[0]).exists():

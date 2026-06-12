@@ -9,6 +9,7 @@ from pathlib import Path
 from statistics import mean
 from typing import Any
 
+from sansoku_ai.core import BOARD_SIZE
 from sansoku_ai.jsonl import iter_jsonl_records
 
 
@@ -58,6 +59,73 @@ def same_move(a: dict[str, Any] | None, b: dict[str, Any] | None) -> bool:
 
 def move_key(move: dict[str, Any]) -> str:
     return f"{int(move['row'])},{int(move['col'])},{int(move['value'])}"
+
+
+SYMMETRIES = ("identity", "rot180", "diag_main", "diag_anti")
+
+
+def transform_rc(row: int, col: int, symmetry: str) -> tuple[int, int]:
+    last = BOARD_SIZE - 1
+    if symmetry == "identity":
+        return row, col
+    if symmetry == "rot180":
+        return last - row, last - col
+    if symmetry == "diag_main":
+        return col, row
+    if symmetry == "diag_anti":
+        return last - col, last - row
+    raise ValueError(f"unknown symmetry: {symmetry}")
+
+
+def transform_flat_board(items: list[Any], symmetry: str) -> list[Any]:
+    output = [0] * (BOARD_SIZE * BOARD_SIZE)
+    for idx, value in enumerate(items):
+        row, col = divmod(idx, BOARD_SIZE)
+        new_row, new_col = transform_rc(row, col, symmetry)
+        output[new_row * BOARD_SIZE + new_col] = value
+    return output
+
+
+def transform_state(state: dict[str, Any], symmetry: str) -> dict[str, Any]:
+    transformed = dict(state)
+    transformed["values"] = transform_flat_board(list(state["values"]), symmetry)
+    transformed["owners"] = transform_flat_board(list(state["owners"]), symmetry)
+    return transformed
+
+
+def transform_move(move: dict[str, Any] | None, symmetry: str) -> dict[str, Any] | None:
+    if move is None:
+        return None
+    transformed = dict(move)
+    row, col = transform_rc(int(move["row"]), int(move["col"]), symmetry)
+    transformed["row"] = row
+    transformed["col"] = col
+    transformed["index"] = row * BOARD_SIZE + col
+    transformed["ones"] = int(move["value"]) % 10
+    return transformed
+
+
+def transform_training_record(record: dict[str, Any], symmetry: str) -> dict[str, Any]:
+    if symmetry == "identity":
+        transformed = dict(record)
+        transformed["state"] = dict(record["state"])
+        transformed["moves"] = [dict(item) for item in record["moves"]]
+        return transformed
+
+    transformed = dict(record)
+    transformed["id"] = f"{record['id']}#sym={symmetry}"
+    transformed["symmetry"] = symmetry
+    transformed["state"] = transform_state(record["state"], symmetry)
+    transformed["played_move"] = transform_move(record.get("played_move"), symmetry)
+    transformed["best_move"] = transform_move(record.get("best_move"), symmetry)
+    transformed_moves: list[dict[str, Any]] = []
+    for item in record["moves"]:
+        transformed_item = dict(item)
+        transformed_item["move"] = transform_move(item["move"], symmetry)
+        transformed_item["action_key"] = move_key(transformed_item["move"])
+        transformed_moves.append(transformed_item)
+    transformed["moves"] = transformed_moves
+    return transformed
 
 
 def softmax(values: list[float], temperature: float) -> list[float]:
@@ -152,6 +220,10 @@ def build_example(
 
 def example_key(record: dict[str, Any]) -> str:
     state = record["state"]
+    return state_key(state)
+
+
+def state_key(state: dict[str, Any]) -> str:
     payload = {
         "values": state["values"],
         "owners": state["owners"],
@@ -161,6 +233,32 @@ def example_key(record: dict[str, Any]) -> str:
         "moves_played": state["moves_played"],
     }
     return json.dumps(payload, separators=(",", ":"), sort_keys=True)
+
+
+def canonical_symmetry_key(record: dict[str, Any]) -> str:
+    return min(state_key(transform_state(record["state"], symmetry)) for symmetry in SYMMETRIES)
+
+
+def expand_symmetries(record: dict[str, Any]) -> list[dict[str, Any]]:
+    output: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for symmetry in SYMMETRIES:
+        transformed = transform_training_record(record, symmetry)
+        key = example_key(transformed)
+        if key in seen:
+            continue
+        seen.add(key)
+        output.append(transformed)
+    return output
+
+
+def expand_records(records: list[dict[str, Any]], *, symmetry_augment: bool) -> list[dict[str, Any]]:
+    if not symmetry_augment:
+        return records
+    expanded: list[dict[str, Any]] = []
+    for record in records:
+        expanded.extend(expand_symmetries(record))
+    return expanded
 
 
 def write_jsonl(path: Path, records: list[dict[str, Any]]) -> None:
@@ -186,6 +284,11 @@ def main() -> None:
     parser.add_argument("--policy-temperature", type=float, default=6.0)
     parser.add_argument("--min-analyzed-moves", type=int, default=2)
     parser.add_argument("--keep-duplicates", action="store_true")
+    parser.add_argument(
+        "--symmetry-augment",
+        action="store_true",
+        help="Add the four safe initial-position symmetries after the train/val split.",
+    )
     args = parser.parse_args()
 
     sources = args.source or [source for source in DEFAULT_SOURCES if source.path.exists()]
@@ -212,7 +315,7 @@ def main() -> None:
             if record is None:
                 skipped += 1
                 continue
-            key = example_key(record)
+            key = canonical_symmetry_key(record) if args.symmetry_augment else example_key(record)
             example = DatasetExample(key=key, quality=source.quality, record=record)
             if args.keep_duplicates:
                 examples_list.append(example)
@@ -229,18 +332,23 @@ def main() -> None:
             kept_counts[str(example.record["tier"])] = kept_counts.get(str(example.record["tier"]), 0) + 1
 
     rng = random.Random(args.seed)
-    examples = [example.record for example in examples_list]
-    examples.sort(key=lambda item: str(item["id"]))
-    rng.shuffle(examples)
-
-    write_jsonl(args.output, examples)
+    base_examples = [example.record for example in examples_list]
+    base_examples.sort(key=lambda item: str(item["id"]))
+    rng.shuffle(base_examples)
 
     if args.train_output is not None or args.val_output is not None:
-        val_count = int(round(len(examples) * args.val_ratio))
-        val = examples[:val_count]
-        train = examples[val_count:]
+        val_count = int(round(len(base_examples) * args.val_ratio))
+        val_base = base_examples[:val_count]
+        train_base = base_examples[val_count:]
+        val = expand_records(val_base, symmetry_augment=args.symmetry_augment)
+        train = expand_records(train_base, symmetry_augment=args.symmetry_augment)
+        examples = train + val
         write_jsonl(args.train_output or Path("data/train.jsonl"), train)
         write_jsonl(args.val_output or Path("data/val.jsonl"), val)
+    else:
+        examples = expand_records(base_examples, symmetry_augment=args.symmetry_augment)
+
+    write_jsonl(args.output, examples)
 
     weights = [float(item["sample_weight"]) for item in examples]
     analyzed_counts = [int(item["analyzed_count"]) for item in examples]
@@ -249,6 +357,7 @@ def main() -> None:
     print(f"sources={len(sources)} read={read_summary}")
     print(
         f"wrote={args.output} examples={len(examples)} skipped={skipped} "
+        f"base_examples={len(base_examples)} symmetry_augment={args.symmetry_augment} "
         f"tiers={tier_summary}"
     )
     if examples:

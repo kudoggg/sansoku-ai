@@ -16,6 +16,8 @@ Current slice:
 - Ranker-union root search and an automated self-play/reanalysis iteration loop.
 - Parallel/resumable mixed-game generation for RunPod or other multi-core hosts.
 - A first PyTorch NN ranker scaffold: board CNN + legal-move-list policy scores.
+- NN dataset building uses the four safe Sansoku board symmetries by default in
+  the iteration loop, with train/validation split done before augmentation.
 - Arena and match results use komi 16 by default; pass `--komi 0` for raw score
   margins.
 
@@ -43,4 +45,10 @@ Automated NN self-play/reanalysis/training iteration:
 
 ```powershell
 python -m sansoku_ai.scripts.run_nn_iteration --name nn_iter001 --games 5000 --workers 8 --ranker-model models/nn_ranker_v2.pt
+```
+
+Repeat-and-promote cycle for RunPod:
+
+```powershell
+python -m sansoku_ai.scripts.run_nn_cycle --prefix nn_runpod --cycles 3 --games 5000 --workers 8 --initial-ranker-model models/nn_ranker_v2.pt
 ```

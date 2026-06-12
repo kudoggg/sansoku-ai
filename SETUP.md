@@ -61,6 +61,8 @@ For a longer unattended NN iteration:
 
 The NN loop performs mixed self-play, position sampling, d3/d5 reanalysis, dataset
 building, NN ranker training, komi-16 arena evaluation, and artifact packaging.
+It also applies the four safe Sansoku symmetries by default after the train/val
+split. Add `--no-symmetry-augment` only when you want a smaller diagnostic run.
 Rerun the same command after an interruption; generated games and reanalysis
 resume where possible, and completed output files are skipped.
 

@@ -146,6 +146,12 @@ champion's self-play/mixed play, but labels are produced by the alpha-beta
 reanalyzer. That keeps the target stable while the training distribution becomes
 stronger.
 
+NN iterations use the four safe Sansoku symmetries by default: identity, 180
+degree rotation, main diagonal reflection, and anti-diagonal reflection. The
+train/validation split is made before augmentation, so symmetric copies of the
+same position do not leak across the split. Add `--no-symmetry-augment` only for
+diagnostic runs where you want the old smaller dataset.
+
 Make sure the initial NN model exists on the pod first, for example
 `models/nn_ranker_v2.pt`.
 
