@@ -93,6 +93,160 @@ python -m sansoku_ai.scripts.compare_rankers \
   --name-b nn
 ```
 
+## First policy/value run
+
+The policy/value model is the bridge toward AlphaZero/KataGo-style search. It
+still trains from alpha-beta reanalysis data, but it predicts two things:
+
+- policy: a distribution over the current legal move list.
+- value: the current player's expected margin, normalized to `[-1, 1]`.
+
+Train and evaluate:
+
+```bash
+python -m sansoku_ai.scripts.train_policy_value \
+  --train data/train_v2.jsonl \
+  --val data/val_v2.jsonl \
+  --epochs 20 \
+  --batch-size 128 \
+  --policy-target-mode policy \
+  --value-target-mode search \
+  --output models/policy_value_v1.pt
+
+python -m sansoku_ai.scripts.evaluate_policy_value \
+  models/policy_value_v1.pt \
+  data/val_v2.jsonl
+```
+
+Use it cautiously inside alpha-beta first. This keeps alpha-beta as the tactical
+backbone while the value head starts replacing the leaf evaluator:
+
+```bash
+python -m sansoku_ai.scripts.arena \
+  --candidate pvab3 \
+  --opponent-mix ab2:0.5,ab3:0.5 \
+  --games 40 \
+  --policy-value-model models/policy_value_v1.pt \
+  --candidate-move-limit 8 \
+  --opponent-move-limit 8 \
+  --nn-value-weight 0.25 \
+  --komi 16
+```
+
+Then try the first batched PUCT player:
+
+```bash
+python -m sansoku_ai.scripts.arena \
+  --candidate puct100 \
+  --opponent-mix ab2:0.5,ab3:0.5 \
+  --games 20 \
+  --policy-value-model models/policy_value_v1.pt \
+  --puct-simulations 100 \
+  --puct-batch-size 8 \
+  --komi 16
+```
+
+Generate policy/value self-play games with MCTS visit policies:
+
+```bash
+python -m sansoku_ai.scripts.generate_pv_selfplay \
+  --model models/policy_value_v1.pt \
+  --output data/pv_selfplay_1000.jsonl \
+  --games 1000 \
+  --player puct100 \
+  --puct-simulations 100 \
+  --puct-batch-size 8 \
+  --resume
+```
+
+Convert the PUCT visit distributions into policy/value training records:
+
+```bash
+python -m sansoku_ai.scripts.build_pv_training_dataset \
+  data/pv_selfplay_1000.jsonl \
+  --output data/pv_dataset_1000.jsonl \
+  --train-output data/pv_train_1000.jsonl \
+  --val-output data/pv_val_1000.jsonl \
+  --symmetry-augment \
+  --komi 16 \
+  --target-komi 0
+
+python -m sansoku_ai.scripts.train_policy_value \
+  --train data/pv_train_1000.jsonl \
+  --val data/pv_val_1000.jsonl \
+  --epochs 20 \
+  --batch-size 128 \
+  --policy-target-mode policy \
+  --value-target-mode search \
+  --output models/policy_value_from_puct.pt
+```
+
+`--komi 16` is kept for match/evaluation metadata, while `--target-komi 0`
+keeps value targets raw because `pvab` and `puct` add komi correction during
+search.
+
+For unattended policy/value runs, use the promote/reject cycle below. It keeps a
+separate champion checkpoint, generates batched PUCT self-play from that
+champion, trains a challenger, and only promotes the challenger if it beats the
+previous champion in a balanced first/second arena.
+
+```bash
+mkdir -p logs
+nohup python -m sansoku_ai.scripts.run_pv_cycle \
+  --prefix pv_runpod \
+  --cycles 3 \
+  --initial-model models/policy_value_v1.pt \
+  --games 1000 \
+  --player puct100 \
+  --puct-simulations 100 \
+  --puct-batch-size 8 \
+  --train-epochs 20 \
+  --batch-size 128 \
+  --arena-games 20 \
+  --arena-strong-games 20 \
+  --arena-full-games 2 \
+  --arena-strong-full-games 2 \
+  --promote-games 40 \
+  --reanalyze-workers 4 \
+  --continue-on-fail \
+  > logs/pv_runpod_cycle.log 2>&1 &
+tail -f logs/pv_runpod_cycle.log
+```
+
+The cycle also mines promotion-match losses by default. If a challenger loses
+because it allowed an opponent high-value move, or if it loses especially badly
+as second player, those positions are reanalyzed with alpha-beta depth 5 and
+fed into later cycles as extra training sources. Disable this only for a pure
+PUCT-only experiment:
+
+```bash
+--disable-promotion-mining
+```
+
+If the browser disconnects, reconnect and inspect progress:
+
+```bash
+cd /workspace/sansoku-ai
+ps -ef | grep run_pv_cycle | grep -v grep
+tail -n 160 logs/pv_runpod_cycle.log
+```
+
+Outputs:
+
+```text
+models/policy_value_pv_runpod_champion.pt
+models/policy_value_pv_runpod_001.pt
+data/pv_iterations/pv_runpod_001/
+data/pv_iterations/pv_runpod_cycle_summary.json
+outputs/pv_runpod_001_artifacts.tar.gz
+```
+
+With `--continue-on-fail`, a rejected challenger is not accepted, but the next
+cycle still continues from the current champion. This is useful for overnight
+experiments where you want the run to keep producing diagnostics even when one
+candidate fails promotion. The rejected games can still create hard examples for
+the next challenger.
+
 If the NN is competitive, use it in the same ranker-union player:
 
 ```bash

@@ -27,9 +27,12 @@ def main() -> None:
     models = (
         Path("models") / f"linear_ranker_{args.name}.json",
         Path("models") / f"nn_ranker_{args.name}.pt",
+        Path("models") / f"policy_value_{args.name}.pt",
     )
     log = Path("logs") / f"{args.name}.log"
     run_dir = Path("data") / "iterations" / args.name
+    if not run_dir.exists():
+        run_dir = Path("data") / "pv_iterations" / args.name
     arena_files = sorted(run_dir.glob("arena_*.json")) if run_dir.exists() else []
     mined_files = sorted(run_dir.glob("mined_*.jsonl")) if run_dir.exists() else []
 

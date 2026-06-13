@@ -75,6 +75,17 @@ def format_stats(label: str, stats: dict[str, float | int]) -> str:
     )
 
 
+def choose_policy_value_device(text: str) -> str:
+    if text == "auto":
+        try:
+            import torch
+
+            return "cuda" if torch.cuda.is_available() else "cpu"
+        except ModuleNotFoundError:
+            return "cpu"
+    return text
+
+
 class Actor:
     def choose(self, state: State, rng: random.Random) -> tuple[Move, str]:
         raise NotImplementedError
@@ -113,8 +124,14 @@ def make_player(
     spec: str,
     *,
     ranker: RankerModel | None,
+    policy_value: Any | None,
     endgame: int,
     move_limit: int | None,
+    komi: int,
+    nn_value_weight: float,
+    puct_simulations: int,
+    cpuct: float,
+    puct_batch_size: int,
     union_value_moves: int,
     union_ranker_moves: int,
     union_defense_moves: int,
@@ -150,6 +167,39 @@ def make_player(
             ),
             endgame_exact_remaining=endgame,
         )
+    if spec.startswith("pvab"):
+        if policy_value is None:
+            raise ValueError("policy-value model is required for pvab players")
+        from sansoku_ai.pv_players import PolicyValueAlphaBetaPlayer
+
+        return PolicyValueAlphaBetaPlayer(
+            policy_value=policy_value,
+            depth=int(spec[4:]),
+            endgame_exact_remaining=endgame,
+            move_limit=move_limit,
+            komi=komi,
+            nn_value_weight=nn_value_weight,
+            name=spec,
+        )
+    if spec.startswith("puct"):
+        if policy_value is None:
+            raise ValueError("policy-value model is required for puct players")
+        from sansoku_ai.pv_players import PuctPlayer
+
+        simulations_text = spec[4:]
+        simulations = int(simulations_text) if simulations_text else puct_simulations
+        return with_endgame_exact(
+            PuctPlayer(
+                policy_value=policy_value,
+                simulations=simulations,
+                cpuct=cpuct,
+                komi=komi,
+                endgame_exact_remaining=endgame,
+                batch_size=puct_batch_size,
+                name=spec,
+            ),
+            endgame_exact_remaining=endgame,
+        )
     raise ValueError(f"unknown player spec: {spec}")
 
 
@@ -157,8 +207,14 @@ def make_fixed_actor(
     spec: str,
     *,
     ranker: RankerModel | None,
+    policy_value: Any | None,
     endgame: int,
     move_limit: int | None,
+    komi: int,
+    nn_value_weight: float,
+    puct_simulations: int,
+    cpuct: float,
+    puct_batch_size: int,
     union_value_moves: int,
     union_ranker_moves: int,
     union_defense_moves: int,
@@ -168,8 +224,14 @@ def make_fixed_actor(
         make_player(
             spec,
             ranker=ranker,
+            policy_value=policy_value,
             endgame=endgame,
             move_limit=move_limit,
+            komi=komi,
+            nn_value_weight=nn_value_weight,
+            puct_simulations=puct_simulations,
+            cpuct=cpuct,
+            puct_batch_size=puct_batch_size,
             union_value_moves=union_value_moves,
             union_ranker_moves=union_ranker_moves,
             union_defense_moves=union_defense_moves,
@@ -183,8 +245,14 @@ def make_mixed_actor(
     mix: list[tuple[str, float]],
     *,
     ranker: RankerModel | None,
+    policy_value: Any | None,
     endgame: int,
     move_limit: int | None,
+    komi: int,
+    nn_value_weight: float,
+    puct_simulations: int,
+    cpuct: float,
+    puct_batch_size: int,
     union_value_moves: int,
     union_ranker_moves: int,
     union_defense_moves: int,
@@ -195,8 +263,14 @@ def make_mixed_actor(
         spec: make_player(
             spec,
             ranker=ranker,
+            policy_value=policy_value,
             endgame=endgame,
             move_limit=move_limit,
+            komi=komi,
+            nn_value_weight=nn_value_weight,
+            puct_simulations=puct_simulations,
+            cpuct=cpuct,
+            puct_batch_size=puct_batch_size,
             union_value_moves=union_value_moves,
             union_ranker_moves=union_ranker_moves,
             union_defense_moves=union_defense_moves,
@@ -319,6 +393,9 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--ranker-model", type=Path, default=None)
     parser.add_argument("--opponent-ranker-model", type=Path, default=None)
+    parser.add_argument("--policy-value-model", type=Path, default=None)
+    parser.add_argument("--opponent-policy-value-model", type=Path, default=None)
+    parser.add_argument("--policy-value-device", default="auto")
     parser.add_argument("--endgame", type=int, default=4)
     parser.add_argument("--candidate-move-limit", type=int, default=8)
     parser.add_argument("--opponent-move-limit", type=int, default=8)
@@ -331,6 +408,10 @@ def main() -> None:
     parser.add_argument("--union-ranker-moves", type=int, default=8)
     parser.add_argument("--union-defense-moves", type=int, default=4)
     parser.add_argument("--union-max-root-moves", type=int, default=24)
+    parser.add_argument("--nn-value-weight", type=float, default=1.0)
+    parser.add_argument("--puct-simulations", type=int, default=100)
+    parser.add_argument("--cpuct", type=float, default=1.5)
+    parser.add_argument("--puct-batch-size", type=int, default=1)
     parser.add_argument("--komi", type=int, default=16)
     parser.add_argument("--allow-odd-games", action="store_true")
     parser.add_argument(
@@ -356,6 +437,18 @@ def main() -> None:
     candidate_ranker = load_ranker_model(args.ranker_model) if args.ranker_model else None
     opponent_ranker_path = args.opponent_ranker_model or args.ranker_model
     opponent_ranker = load_ranker_model(opponent_ranker_path) if opponent_ranker_path else None
+    candidate_pv = None
+    opponent_pv = None
+    pv_device = choose_policy_value_device(args.policy_value_device)
+    if args.policy_value_model:
+        from sansoku_ai.policy_value import PolicyValueModel
+
+        candidate_pv = PolicyValueModel.load(args.policy_value_model, device=pv_device)
+    opponent_pv_path = args.opponent_policy_value_model or args.policy_value_model
+    if opponent_pv_path:
+        from sansoku_ai.policy_value import PolicyValueModel
+
+        opponent_pv = PolicyValueModel.load(opponent_pv_path, device=pv_device)
     rng = random.Random(args.seed)
     candidate_move_limit = None if args.full_candidate else args.candidate_move_limit
     opponent_move_limit = None if args.full_opponent else args.opponent_move_limit
@@ -371,8 +464,14 @@ def main() -> None:
         candidate_actor = make_fixed_actor(
             args.candidate,
             ranker=candidate_ranker,
+            policy_value=candidate_pv,
             endgame=args.endgame,
             move_limit=candidate_move_limit,
+            komi=args.komi,
+            nn_value_weight=args.nn_value_weight,
+            puct_simulations=args.puct_simulations,
+            cpuct=args.cpuct,
+            puct_batch_size=args.puct_batch_size,
             union_value_moves=args.union_value_moves,
             union_ranker_moves=args.union_ranker_moves,
             union_defense_moves=args.union_defense_moves,
@@ -381,8 +480,14 @@ def main() -> None:
         opponent_actor = make_mixed_actor(
             args.opponent_mix,
             ranker=opponent_ranker,
+            policy_value=opponent_pv,
             endgame=args.endgame,
             move_limit=opponent_move_limit,
+            komi=args.komi,
+            nn_value_weight=args.nn_value_weight,
+            puct_simulations=args.puct_simulations,
+            cpuct=args.cpuct,
+            puct_batch_size=args.puct_batch_size,
             union_value_moves=args.union_value_moves,
             union_ranker_moves=args.union_ranker_moves,
             union_defense_moves=args.union_defense_moves,

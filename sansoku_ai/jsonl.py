@@ -12,7 +12,7 @@ def iter_jsonl_records(
     skip_bad: bool = True,
     warn: bool = True,
 ) -> Iterator[dict[str, Any]]:
-    with path.open("r", encoding="utf-8") as f:
+    with path.open("r", encoding="utf-8-sig") as f:
         for line_no, line in enumerate(f, 1):
             if not line.strip():
                 continue
