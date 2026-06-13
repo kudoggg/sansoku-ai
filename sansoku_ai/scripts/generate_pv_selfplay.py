@@ -108,6 +108,9 @@ def make_player(
     puct_simulations: int,
     cpuct: float,
     puct_batch_size: int,
+    puct_leaf_depth: int,
+    puct_leaf_weight: float,
+    puct_leaf_move_limit: int | None,
     root_dirichlet_alpha: float,
     root_noise_fraction: float,
 ):
@@ -133,6 +136,9 @@ def make_player(
             root_dirichlet_alpha=root_dirichlet_alpha,
             root_noise_fraction=root_noise_fraction,
             batch_size=puct_batch_size,
+            leaf_ab_depth=puct_leaf_depth,
+            leaf_ab_weight=puct_leaf_weight,
+            leaf_ab_move_limit=puct_leaf_move_limit,
             name=spec,
         )
     raise ValueError(f"unknown policy-value selfplay player: {spec}")
@@ -261,6 +267,9 @@ def main() -> None:
     parser.add_argument("--puct-simulations", type=int, default=100)
     parser.add_argument("--cpuct", type=float, default=1.5)
     parser.add_argument("--puct-batch-size", type=int, default=1)
+    parser.add_argument("--puct-leaf-depth", type=int, default=0)
+    parser.add_argument("--puct-leaf-weight", type=float, default=0.0)
+    parser.add_argument("--puct-leaf-move-limit", type=int, default=8)
     parser.add_argument("--root-dirichlet-alpha", type=float, default=0.3)
     parser.add_argument("--root-noise-fraction", type=float, default=0.25)
     parser.add_argument("--opening-plies", type=int, default=4)
@@ -284,6 +293,9 @@ def main() -> None:
         puct_simulations=args.puct_simulations,
         cpuct=args.cpuct,
         puct_batch_size=args.puct_batch_size,
+        puct_leaf_depth=args.puct_leaf_depth,
+        puct_leaf_weight=args.puct_leaf_weight,
+        puct_leaf_move_limit=args.puct_leaf_move_limit,
         root_dirichlet_alpha=args.root_dirichlet_alpha,
         root_noise_fraction=args.root_noise_fraction,
     )

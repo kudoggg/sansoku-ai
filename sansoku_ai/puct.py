@@ -44,6 +44,9 @@ class PuctSearch:
         root_dirichlet_alpha: float = 0.0,
         root_noise_fraction: float = 0.0,
         batch_size: int = 1,
+        leaf_ab_depth: int = 0,
+        leaf_ab_weight: float = 0.0,
+        leaf_ab_move_limit: int | None = 8,
         rng: random.Random | None = None,
     ) -> None:
         self.policy_value = policy_value
@@ -54,6 +57,9 @@ class PuctSearch:
         self.root_dirichlet_alpha = max(0.0, root_dirichlet_alpha)
         self.root_noise_fraction = max(0.0, min(1.0, root_noise_fraction))
         self.batch_size = max(1, batch_size)
+        self.leaf_ab_depth = max(0, leaf_ab_depth)
+        self.leaf_ab_weight = max(0.0, min(1.0, leaf_ab_weight))
+        self.leaf_ab_move_limit = leaf_ab_move_limit
         self.rng = rng or random.Random()
         self.exact_search = AlphaBetaSearch(
             depth=1,
@@ -61,6 +67,14 @@ class PuctSearch:
             move_limit=None,
             komi=komi,
         )
+        self.leaf_ab_search: AlphaBetaSearch | None = None
+        if self.leaf_ab_depth > 0 and self.leaf_ab_weight > 0.0:
+            self.leaf_ab_search = AlphaBetaSearch(
+                depth=self.leaf_ab_depth,
+                endgame_exact_remaining=endgame_exact_remaining,
+                move_limit=leaf_ab_move_limit,
+                komi=komi,
+            )
         self.nodes = 0
         self.last_root_stats: list[dict[str, float | int]] = []
 
@@ -183,7 +197,7 @@ class PuctSearch:
         assert moves is not None
         logits, value = self.policy_value.predict_state(node.state, moves)
         priors = self._priors_from_logits(logits, len(moves))
-        value = self._add_komi_correction(node.state, value)
+        value = self._leaf_value(node.state, value)
         self._expand_node(node, moves, priors)
         return value
 
@@ -235,11 +249,23 @@ class PuctSearch:
         return [value / total for value in exps]
 
     def _add_komi_correction(self, state: State, value: float) -> float:
+        target_komi = self.policy_value.target_komi
         komi_correction = (
             state.margin_for(state.current, self.komi)
-            - state.margin_for(state.current, 0)
+            - state.margin_for(state.current, target_komi)
         ) / self.policy_value.value_scale
         return max(-1.0, min(1.0, value + komi_correction))
+
+    def _leaf_value(self, state: State, nn_value: float) -> float:
+        value = self._add_komi_correction(state, nn_value)
+        if self.leaf_ab_search is None:
+            return value
+
+        result = self.leaf_ab_search.choose(state)
+        self.nodes += result.nodes
+        ab_value = normalize_margin(result.value, self.policy_value.value_scale)
+        mixed = (1.0 - self.leaf_ab_weight) * value + self.leaf_ab_weight * ab_value
+        return max(-1.0, min(1.0, mixed))
 
     def _run_batched_simulations(self, root: PuctNode, simulations: int) -> None:
         pending: list[tuple[PuctNode, list[PuctNode], tuple[Move, ...]]] = []
@@ -295,7 +321,7 @@ class PuctSearch:
         )
         for (node, path, moves), (logits, value) in zip(pending, predictions):
             priors = self._priors_from_logits(logits, len(moves))
-            value = self._add_komi_correction(node.state, value)
+            value = self._leaf_value(node.state, value)
             self._expand_node(node, moves, priors)
             node.pending = False
             self._backup(path, value)

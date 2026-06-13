@@ -89,7 +89,11 @@ class PolicyValueAlphaBetaSearch(AlphaBetaSearch):
 
         classic = super().evaluate(state, moves)
         nn_raw = self.policy_value.value_raw(state, moves)
-        komi_correction = state.margin_for(state.current, self.komi) - state.margin_for(state.current, 0)
+        target_komi = self.policy_value.target_komi
+        komi_correction = state.margin_for(state.current, self.komi) - state.margin_for(
+            state.current,
+            target_komi,
+        )
         nn_value = nn_raw + komi_correction
         return (1.0 - self.nn_value_weight) * classic + self.nn_value_weight * nn_value
 

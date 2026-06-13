@@ -132,6 +132,9 @@ def make_player(
     puct_simulations: int,
     cpuct: float,
     puct_batch_size: int,
+    puct_leaf_depth: int,
+    puct_leaf_weight: float,
+    puct_leaf_move_limit: int | None,
     union_value_moves: int,
     union_ranker_moves: int,
     union_defense_moves: int,
@@ -196,6 +199,9 @@ def make_player(
                 komi=komi,
                 endgame_exact_remaining=endgame,
                 batch_size=puct_batch_size,
+                leaf_ab_depth=puct_leaf_depth,
+                leaf_ab_weight=puct_leaf_weight,
+                leaf_ab_move_limit=puct_leaf_move_limit,
                 name=spec,
             ),
             endgame_exact_remaining=endgame,
@@ -215,6 +221,9 @@ def make_fixed_actor(
     puct_simulations: int,
     cpuct: float,
     puct_batch_size: int,
+    puct_leaf_depth: int,
+    puct_leaf_weight: float,
+    puct_leaf_move_limit: int | None,
     union_value_moves: int,
     union_ranker_moves: int,
     union_defense_moves: int,
@@ -232,6 +241,9 @@ def make_fixed_actor(
             puct_simulations=puct_simulations,
             cpuct=cpuct,
             puct_batch_size=puct_batch_size,
+            puct_leaf_depth=puct_leaf_depth,
+            puct_leaf_weight=puct_leaf_weight,
+            puct_leaf_move_limit=puct_leaf_move_limit,
             union_value_moves=union_value_moves,
             union_ranker_moves=union_ranker_moves,
             union_defense_moves=union_defense_moves,
@@ -253,6 +265,9 @@ def make_mixed_actor(
     puct_simulations: int,
     cpuct: float,
     puct_batch_size: int,
+    puct_leaf_depth: int,
+    puct_leaf_weight: float,
+    puct_leaf_move_limit: int | None,
     union_value_moves: int,
     union_ranker_moves: int,
     union_defense_moves: int,
@@ -271,6 +286,9 @@ def make_mixed_actor(
             puct_simulations=puct_simulations,
             cpuct=cpuct,
             puct_batch_size=puct_batch_size,
+            puct_leaf_depth=puct_leaf_depth,
+            puct_leaf_weight=puct_leaf_weight,
+            puct_leaf_move_limit=puct_leaf_move_limit,
             union_value_moves=union_value_moves,
             union_ranker_moves=union_ranker_moves,
             union_defense_moves=union_defense_moves,
@@ -412,6 +430,9 @@ def main() -> None:
     parser.add_argument("--puct-simulations", type=int, default=100)
     parser.add_argument("--cpuct", type=float, default=1.5)
     parser.add_argument("--puct-batch-size", type=int, default=1)
+    parser.add_argument("--puct-leaf-depth", type=int, default=0)
+    parser.add_argument("--puct-leaf-weight", type=float, default=0.0)
+    parser.add_argument("--puct-leaf-move-limit", type=int, default=8)
     parser.add_argument("--komi", type=int, default=16)
     parser.add_argument("--allow-odd-games", action="store_true")
     parser.add_argument(
@@ -472,6 +493,9 @@ def main() -> None:
             puct_simulations=args.puct_simulations,
             cpuct=args.cpuct,
             puct_batch_size=args.puct_batch_size,
+            puct_leaf_depth=args.puct_leaf_depth,
+            puct_leaf_weight=args.puct_leaf_weight,
+            puct_leaf_move_limit=args.puct_leaf_move_limit,
             union_value_moves=args.union_value_moves,
             union_ranker_moves=args.union_ranker_moves,
             union_defense_moves=args.union_defense_moves,
@@ -488,6 +512,9 @@ def main() -> None:
             puct_simulations=args.puct_simulations,
             cpuct=args.cpuct,
             puct_batch_size=args.puct_batch_size,
+            puct_leaf_depth=args.puct_leaf_depth,
+            puct_leaf_weight=args.puct_leaf_weight,
+            puct_leaf_move_limit=args.puct_leaf_move_limit,
             union_value_moves=args.union_value_moves,
             union_ranker_moves=args.union_ranker_moves,
             union_defense_moves=args.union_defense_moves,

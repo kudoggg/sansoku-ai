@@ -29,6 +29,7 @@ class PolicyValueConfig:
     hidden: int = 160
     dropout: float = 0.05
     value_scale: float = 80.0
+    target_komi: int = 0
 
 
 def normalize_margin(margin: float, scale: float) -> float:
@@ -284,6 +285,10 @@ class PolicyValueModel:
     @property
     def value_scale(self) -> float:
         return self.model.config.value_scale
+
+    @property
+    def target_komi(self) -> int:
+        return self.model.config.target_komi
 
     def clear_cache(self) -> None:
         self._cache.clear()

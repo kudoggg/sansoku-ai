@@ -47,8 +47,8 @@ Policy/value bootstrap after installing PyTorch:
 python -m sansoku_ai.scripts.train_policy_value --train data/train_v2.jsonl --val data/val_v2.jsonl --epochs 20 --batch-size 128 --policy-target-mode policy --value-target-mode search --output models/policy_value_v1.pt
 python -m sansoku_ai.scripts.evaluate_policy_value models/policy_value_v1.pt data/val_v2.jsonl
 python -m sansoku_ai.scripts.arena --candidate pvab3 --opponent-mix ab2:0.5,ab3:0.5 --games 20 --policy-value-model models/policy_value_v1.pt --candidate-move-limit 8 --opponent-move-limit 8 --nn-value-weight 0.25 --komi 16
-python -m sansoku_ai.scripts.arena --candidate puct100 --opponent-mix ab2:0.5,ab3:0.5 --games 10 --policy-value-model models/policy_value_v1.pt --puct-simulations 100 --puct-batch-size 8 --komi 16
-python -m sansoku_ai.scripts.generate_pv_selfplay --model models/policy_value_v1.pt --output data/pv_selfplay_100.jsonl --games 100 --player puct100 --puct-simulations 100 --puct-batch-size 8 --resume
+python -m sansoku_ai.scripts.arena --candidate puct100 --opponent-mix ab2:0.5,ab3:0.5 --games 10 --policy-value-model models/policy_value_v1.pt --puct-simulations 100 --puct-batch-size 8 --puct-leaf-depth 1 --puct-leaf-weight 0.25 --puct-leaf-move-limit 8 --komi 16
+python -m sansoku_ai.scripts.generate_pv_selfplay --model models/policy_value_v1.pt --output data/pv_selfplay_100.jsonl --games 100 --player puct100 --puct-simulations 100 --puct-batch-size 8 --puct-leaf-depth 1 --puct-leaf-weight 0.25 --puct-leaf-move-limit 8 --resume
 python -m sansoku_ai.scripts.build_pv_training_dataset data/pv_selfplay_100.jsonl --output data/pv_dataset.jsonl --train-output data/pv_train.jsonl --val-output data/pv_val.jsonl --symmetry-augment --komi 16 --target-komi 0
 python -m sansoku_ai.scripts.train_policy_value --train data/pv_train.jsonl --val data/pv_val.jsonl --epochs 20 --batch-size 128 --policy-target-mode policy --value-target-mode search --output models/policy_value_from_puct.pt
 ```
@@ -58,15 +58,17 @@ into alpha-beta leaf evaluation. Start with a small `--nn-value-weight` such as
 `0.25`; use `1.0` only after the value head proves reliable. `puctN` writes
 root visit distributions into `mcts_policy` when generating policy/value
 self-play games. It also supports `--puct-batch-size`, so multiple leaf
-evaluations can be batched into one NN call. Self-play uses root Dirichlet noise
-and visit-count sampling by default; evaluation games do not. The value target
+evaluations can be batched into one NN call. Early PUCT should usually use
+`--puct-leaf-depth 1 --puct-leaf-weight 0.25`, so the young value head is
+corrected by shallow alpha-beta. Self-play uses root Dirichlet noise and
+visit-count sampling by default; evaluation games do not. The value target
 remains raw/no-komi by default (`--target-komi 0`) because `pvab` and `puct` add
 komi correction during search.
 
 Policy/value repeat-and-promote cycle:
 
 ```powershell
-python -m sansoku_ai.scripts.run_pv_cycle --prefix pv_runpod --cycles 3 --initial-model models/policy_value_v1.pt --games 1000 --puct-simulations 100 --puct-batch-size 8 --train-epochs 20 --promote-games 40 --reanalyze-workers 4 --continue-on-fail
+python -m sansoku_ai.scripts.run_pv_cycle --prefix pv_runpod --cycles 3 --initial-model models/policy_value_v1.pt --games 1000 --puct-simulations 100 --puct-batch-size 8 --puct-leaf-depth 1 --puct-leaf-weight 0.25 --puct-leaf-move-limit 8 --train-epochs 20 --promote-games 40 --reanalyze-workers 4 --continue-on-fail
 ```
 
 The cycle generates PUCT self-play, trains from MCTS visit policies, evaluates

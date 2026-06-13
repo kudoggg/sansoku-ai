@@ -53,6 +53,9 @@ class PuctPlayer:
     root_dirichlet_alpha: float = 0.0
     root_noise_fraction: float = 0.0
     batch_size: int = 1
+    leaf_ab_depth: int = 0
+    leaf_ab_weight: float = 0.0
+    leaf_ab_move_limit: int | None = 8
     rng: random.Random | None = None
     name: str = "puct100"
 
@@ -66,6 +69,9 @@ class PuctPlayer:
             root_dirichlet_alpha=self.root_dirichlet_alpha,
             root_noise_fraction=self.root_noise_fraction,
             batch_size=self.batch_size,
+            leaf_ab_depth=self.leaf_ab_depth,
+            leaf_ab_weight=self.leaf_ab_weight,
+            leaf_ab_move_limit=self.leaf_ab_move_limit,
             rng=self.rng,
         )
         self.last_result: SearchResult | None = None

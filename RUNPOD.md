@@ -133,7 +133,9 @@ python -m sansoku_ai.scripts.arena \
   --komi 16
 ```
 
-Then try the first batched PUCT player:
+Then try the first batched PUCT player. Pure PUCT can be too optimistic when the
+value head is still young, so the safer first test mixes a small shallow
+alpha-beta leaf correction into the NN value:
 
 ```bash
 python -m sansoku_ai.scripts.arena \
@@ -143,6 +145,9 @@ python -m sansoku_ai.scripts.arena \
   --policy-value-model models/policy_value_v1.pt \
   --puct-simulations 100 \
   --puct-batch-size 8 \
+  --puct-leaf-depth 1 \
+  --puct-leaf-weight 0.25 \
+  --puct-leaf-move-limit 8 \
   --komi 16
 ```
 
@@ -156,6 +161,9 @@ python -m sansoku_ai.scripts.generate_pv_selfplay \
   --player puct100 \
   --puct-simulations 100 \
   --puct-batch-size 8 \
+  --puct-leaf-depth 1 \
+  --puct-leaf-weight 0.25 \
+  --puct-leaf-move-limit 8 \
   --resume
 ```
 
@@ -200,6 +208,9 @@ nohup python -m sansoku_ai.scripts.run_pv_cycle \
   --player puct100 \
   --puct-simulations 100 \
   --puct-batch-size 8 \
+  --puct-leaf-depth 1 \
+  --puct-leaf-weight 0.25 \
+  --puct-leaf-move-limit 8 \
   --train-epochs 20 \
   --batch-size 128 \
   --arena-games 20 \

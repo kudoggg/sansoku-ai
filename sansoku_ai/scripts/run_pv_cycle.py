@@ -161,6 +161,9 @@ def main() -> None:
     parser.add_argument("--player", default="puct100")
     parser.add_argument("--puct-simulations", type=int, default=100)
     parser.add_argument("--puct-batch-size", type=int, default=8)
+    parser.add_argument("--puct-leaf-depth", type=int, default=0)
+    parser.add_argument("--puct-leaf-weight", type=float, default=0.0)
+    parser.add_argument("--puct-leaf-move-limit", type=int, default=8)
     parser.add_argument("--cpuct", type=float, default=1.5)
     parser.add_argument("--endgame", type=int, default=4)
     parser.add_argument("--komi", type=int, default=16)
@@ -260,6 +263,14 @@ def main() -> None:
         if cycle.get("mined_source_for_next_cycle")
         and (cycle_index_from_name(str(cycle.get("name", ""))) or 0) < args.start_index
     )
+    puct_leaf_args = [
+        "--puct-leaf-depth",
+        str(args.puct_leaf_depth),
+        "--puct-leaf-weight",
+        str(args.puct_leaf_weight),
+        "--puct-leaf-move-limit",
+        str(args.puct_leaf_move_limit),
+    ]
 
     for offset in range(args.cycles):
         cycle_index = args.start_index + offset
@@ -307,6 +318,7 @@ def main() -> None:
             str(args.puct_simulations),
             "--puct-batch-size",
             str(args.puct_batch_size),
+            *puct_leaf_args,
             "--cpuct",
             str(args.cpuct),
             "--root-dirichlet-alpha",
@@ -460,6 +472,7 @@ def main() -> None:
                     str(args.puct_simulations),
                     "--puct-batch-size",
                     str(args.puct_batch_size),
+                    *puct_leaf_args,
                     "--komi",
                     str(args.komi),
                     "--output",
@@ -495,6 +508,7 @@ def main() -> None:
                     str(args.puct_simulations),
                     "--puct-batch-size",
                     str(args.puct_batch_size),
+                    *puct_leaf_args,
                     "--komi",
                     str(args.komi),
                     "--output",
@@ -530,6 +544,7 @@ def main() -> None:
                     str(args.puct_simulations),
                     "--puct-batch-size",
                     str(args.puct_batch_size),
+                    *puct_leaf_args,
                     "--full-candidate",
                     "--full-opponent",
                     "--komi",
@@ -567,6 +582,7 @@ def main() -> None:
                     str(args.puct_simulations),
                     "--puct-batch-size",
                     str(args.puct_batch_size),
+                    *puct_leaf_args,
                     "--full-candidate",
                     "--full-opponent",
                     "--komi",
@@ -602,6 +618,7 @@ def main() -> None:
             str(args.puct_simulations),
             "--puct-batch-size",
             str(args.puct_batch_size),
+            *puct_leaf_args,
             "--komi",
             str(args.komi),
             "--output",

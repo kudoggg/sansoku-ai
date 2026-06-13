@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import random
+from collections import Counter
+from dataclasses import replace
 from pathlib import Path
 
 import torch
@@ -23,6 +25,13 @@ def choose_device(text: str) -> torch.device:
     if text == "auto":
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
     return torch.device(text)
+
+
+def infer_target_komi(records: list[dict]) -> int:
+    counts = Counter(int(record.get("target_komi", 0)) for record in records)
+    if not counts:
+        return 0
+    return counts.most_common(1)[0][0]
 
 
 def train_epoch(
@@ -83,6 +92,12 @@ def main() -> None:
     parser.add_argument("--hidden", type=int, default=160)
     parser.add_argument("--dropout", type=float, default=0.05)
     parser.add_argument("--value-scale", type=float, default=80.0)
+    parser.add_argument(
+        "--target-komi",
+        type=int,
+        default=None,
+        help="Komi basis of the value targets. Defaults to the dataset target_komi majority.",
+    )
     parser.add_argument("--value-weight", type=float, default=1.0)
     parser.add_argument("--max-sample-weight", type=float, default=5.0)
     parser.add_argument("--policy-target-mode", choices=("best", "policy"), default="policy")
@@ -102,10 +117,16 @@ def main() -> None:
     device = choose_device(args.device)
     train_records = load_jsonl(args.train)
     val_records = load_jsonl(args.val)
+    target_komi = (
+        infer_target_komi(train_records + val_records)
+        if args.target_komi is None
+        else args.target_komi
+    )
     if args.init_model is not None:
         pv = PolicyValueModel.load(args.init_model, device=device)
         model = pv.model
-        config = model.config
+        config = replace(model.config, target_komi=target_komi)
+        model.config = config
     else:
         config = PolicyValueConfig(
             conv_channels=args.conv_channels,
@@ -113,6 +134,7 @@ def main() -> None:
             hidden=args.hidden,
             dropout=args.dropout,
             value_scale=args.value_scale,
+            target_komi=target_komi,
         )
         model = PolicyValueNet(config).to(device)
     optimizer = torch.optim.AdamW(
@@ -141,7 +163,7 @@ def main() -> None:
         f"train={len(train_records)} val={len(val_records)} output={args.output} "
         f"device={device} config={config} policy_target={args.policy_target_mode} "
         f"value_target={args.value_target_mode} value_weight={args.value_weight} "
-        f"init_model={args.init_model}"
+        f"target_komi={target_komi} init_model={args.init_model}"
     )
     initial = evaluate_policy_value_model(
         model,
